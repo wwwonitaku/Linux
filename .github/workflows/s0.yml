@@ -1,0 +1,84 @@
+name: Convert AV1-H264
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Direct URL to AV1 MP4"
+        required: true
+        type: string
+      output_filename:
+        description: "Output name (no extension)"
+        required: false
+        default: "converted_h264"
+        type: string
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    container:
+      image: jrottenberg/ffmpeg:6.0-ubuntu
+
+    steps:
+      - name: Install curl
+        run: |
+          apt-get update
+          apt-get install -y curl
+
+      - name: Prepare output folder
+        run: |
+          mkdir -p encoded
+
+      - name: Download input video (Robust)
+        run: |
+          # Thêm retry 5 lần, mỗi lần cách nhau 5s nếu mạng lỗi
+          # -C - : Cho phép resume nếu server hỗ trợ
+          echo "Downloading: ${{ github.event.inputs.video_url }}"
+          curl -L --retry 5 --retry-delay 5 --fail \
+               "${{ github.event.inputs.video_url }}" -o input.mp4
+
+      - name: Convert AV1 → H264 (Error Resilient)
+        run: |
+          OUT="${{ github.event.inputs.output_filename }}.mp4"
+          
+          # CÁC THAY ĐỔI ĐỂ FIX LỖI:
+          # -err_detect ignore_err: Bỏ qua lỗi giải mã thay vì dừng lại
+          # -ignore_unknown: Bỏ qua các stream lạ
+          # -fflags +genpts: Tự sinh lại timestamp nếu file gốc bị mất
+          # -max_muxing_queue_size 9999: Tránh lỗi buffer khi audio/video lệch nhau do file lỗi
+          
+          ffmpeg -y \
+            -err_detect ignore_err -ignore_unknown -fflags +genpts \
+            -i input.mp4 \
+            -c:v libx264 -preset slow -crf 20 -maxrate 3500k -bufsize 6000k -pix_fmt yuv420p \
+            -r 30 \
+            -g 300 -keyint_min 300 -sc_threshold 0 \
+            -c:a aac -b:a 96k \
+            -max_muxing_queue_size 9999 \
+            "encoded/$OUT"
+
+      - name: Upload converted file
+        run: |
+          OUT="${{ github.event.inputs.output_filename }}.mp4"
+
+          # Kiểm tra nếu file output tồn tại (phòng trường hợp ffmpeg lỗi nặng quá không ra file)
+          if [ ! -f "encoded/$OUT" ]; then
+            echo "Error: Output file not found. FFmpeg failed completely."
+            exit 1
+          fi
+
+          echo "Uploading $OUT to server..."
+          
+          curl -v \
+               -T "encoded/$OUT" \
+               -w "\nHTTP_STATUS=%{http_code}\n" \
+               "http://uhot.ssplay.net/HY/upload.php?name=$OUT" || true
+
+          echo "--- Upload complete ---"
+
+      - name: Upload artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: encoded_video
+          path: encoded/
