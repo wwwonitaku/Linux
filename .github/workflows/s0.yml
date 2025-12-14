@@ -51,11 +51,7 @@ jobs:
           ffmpeg -y \
             -err_detect ignore_err -ignore_unknown -fflags +genpts \
             -i input.mp4 \
-            -filter_complex "
-    [0:v]split=2[base][blur_src];
-    [blur_src]crop=200:100:50:50,boxblur=20:1[blur];
-    [base][blur]overlay=50:50
-  " \
+            -filter_complex "[0:v]split=2[base][blur_src];[blur_src]crop=200:100:50:50,boxblur=20:1[blur];[base][blur]overlay=50:50" \
             -c:v libx264 -preset slower -crf 20 -pix_fmt yuv420p \
             -r 25 \
             -g 150 -keyint_min 150 -sc_threshold 0 \
