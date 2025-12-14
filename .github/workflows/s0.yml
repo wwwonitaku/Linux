@@ -52,8 +52,8 @@ jobs:
             -err_detect ignore_err -ignore_unknown -fflags +genpts \
             -i input.mp4 \
             -c:v libx264 -preset slow -crf 20 -pix_fmt yuv420p \
-            -r 30 \
-            -g 240 -keyint_min 240 -sc_threshold 0 \
+            -r 25 \
+            -g 200 -keyint_min 200 -sc_threshold 0 \
             -c:a aac -b:a 96k \
             -max_muxing_queue_size 9999 \
             "encoded/$OUT"
