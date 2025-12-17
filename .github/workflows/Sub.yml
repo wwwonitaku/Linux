@@ -21,14 +21,18 @@ on:
       accountId:
         description: 'AccountID'
         required: true
-      bitrate:
-        description: 'Bitrate video (ví dụ: 1800k trong khoảng 1500k–2000k)'
-        required: false
-        default: '1000k'
-      testDuration:
-        description: 'Thời lượng file test (giây)'
-        required: false
-        default: '60'
+      introStart:
+        description: 'introStart'
+        required: true
+      introEnd:
+        description: 'introEnd'
+        required: true
+      outroStart:
+        description: 'outroStart'
+        required: true
+      outroEnd:
+        description: 'outroEnd'
+        required: true
 
 jobs:
   build-and-deploy:
@@ -41,115 +45,95 @@ jobs:
       - name: Setup FFmpeg
         run: |
           sudo apt update
-          sudo apt install -y ffmpeg curl git jq
+          sudo apt install -y ffmpeg curl git jq unzip
 
-      - name: Install Oswald font (from your GitHub repo)
+      - name: Install Oswald font
         run: |
-          set -e
           mkdir -p $HOME/.local/share/fonts
-          # Tải file Oswald.zip từ repo của bạn
           curl -L "https://github.com/wwwonitaku/Linux/raw/main/Oswald.zip" -o Oswald.zip
           unzip -o Oswald.zip -d $HOME/.local/share/fonts
           fc-cache -f -v
-          # Kiểm tra font đã nhận diện
-          fc-list | grep -i oswald || (echo "Oswald font not found by fontconfig" && exit 1)
-
-
-
 
       - name: Download video from M3U8
         run: |
-          set -e
-          SRC="${{ github.event.inputs.name }}-source.mp4"
           ffmpeg -i "${{ github.event.inputs.m3u8link }}" -c copy -bsf:a aac_adtstoasc "${{ github.event.inputs.name }}-source.mp4"
 
-      - name: Verify video file (size + ffprobe + wait)
+      - name: Verify video file
         run: |
-          set +e
           FILE="${{ github.event.inputs.name }}-source.mp4"
-
-          # Đợi file xuất hiện
-          for i in {1..10}; do
-            if [ -f "$FILE" ]; then
-              break
-            fi
-            echo "File chưa xuất hiện, chờ 1s..."
-            sleep 1
-          done
-
-          # Kiểm tra dung lượng >0
           SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
-          echo "File size: $SIZE bytes"
-          if [ $SIZE -eq 0 ]; then
-            echo "File chưa tải xong, retry download..."
-            ffmpeg -y -i "${{ github.event.inputs.m3u8link }}" -c copy "$FILE"
-            SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
-            echo "File size after retry: $SIZE bytes"
-            if [ $SIZE -eq 0 ]; then
-              echo "File vẫn rỗng sau retry"
-              exit 1
-            fi
-          fi
-
-          # Kiểm tra dung lượng tối thiểu 1MB
           if [ $SIZE -lt 1000000 ]; then
-            echo "File quá nhỏ (<1MB), retry download..."
             ffmpeg -y -i "${{ github.event.inputs.m3u8link }}" -c copy "$FILE"
-            SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
-            echo "File size after retry: $SIZE bytes"
-            if [ $SIZE -lt 1000000 ]; then
-              echo "File vẫn quá nhỏ sau retry"
-              exit 1
-            fi
           fi
-
-          # Kiểm tra bằng ffprobe
-          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE"
-          if [ $? -ne 0 ]; then
-            echo "Video file invalid, retrying download..."
-            ffmpeg -y -i "${{ github.event.inputs.m3u8link }}" -c copy "$FILE"
-            ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE"
-            if [ $? -ne 0 ]; then
-              echo "Video file vẫn invalid sau retry"
-              exit 1
-            fi
-          fi
-          set -e
+          ffprobe -v error -show_entries format=duration -of csv=p=0 "$FILE"
 
       - name: Download subtitle
         run: |
-          set -e
           curl -L "${{ github.event.inputs.sublink }}" -o "${{ github.event.inputs.name }}.subraw"
 
-      - name: Normalize subtitle to .srt (handles .vtt)
+      - name: Normalize subtitle
         run: |
-          set -e
           RAW="${{ github.event.inputs.name }}.subraw"
           OUT="${{ github.event.inputs.name }}.srt"
-          # Convert nếu là .vtt; nếu đã .srt thì ffmpeg vẫn copy đúng
-          ffmpeg -y -i "$RAW" "$OUT" || (mv "$RAW" "$OUT")
-          if [ ! -s "$OUT" ]; then
-            echo "Subtitle invalid or empty"
-            exit 1
-          fi
-      - name: Render full hard-sub video (Oswald, yellow + black outline)
+          ffmpeg -y -i "$RAW" "$OUT" || mv "$RAW" "$OUT"
+
+      - name: Render full hard-sub video
         run: |
-          set -e
           SRC="${{ github.event.inputs.name }}-source.mp4"
           SUB="${{ github.event.inputs.name }}.srt"
           OUT="${{ github.event.inputs.name }}-sub.mp4"
           ffmpeg -y -i "$SRC" \
             -vf "subtitles=${SUB}:force_style='Fontname=Oswald,FontSize=34,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1,Shadow=0,Alignment=2'" \
-            -c:v libx264 -preset fast -b:v ${{ github.event.inputs.bitrate }} -profile:v high -level 4.0 \
+            -c:v libx264 -preset fast -b:v 1000k \
             -c:a aac -b:a 128k -movflags +faststart \
             "$OUT"
 
-      - name: Convert to HLS with .png segment names
+      - name: Cut intro/outro and merge (smart conditions)
         run: |
           set -e
           IN="${{ github.event.inputs.name }}-sub.mp4"
+
+          INTRO_START=${{ github.event.inputs.introStart }}
+          INTRO_END=${{ github.event.inputs.introEnd }}
+          OUTRO_START=${{ github.event.inputs.outroStart }}
+          OUTRO_END=${{ github.event.inputs.outroEnd }}
+
+          # Nếu cả 4 đều = 0 → bỏ qua cắt
+          if [ "$INTRO_START" -eq 0 ] && [ "$INTRO_END" -eq 0 ] && [ "$OUTRO_START" -eq 0 ] && [ "$OUTRO_END" -eq 0 ]; then
+            cp "$IN" "${{ github.event.inputs.name }}-final.mp4"
+            exit 0
+          fi
+
+          # Lấy duration video
+          DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$IN")
+          DURATION_INT=${DURATION%.*}
+
+          mkdir -p cut
+          rm -f cut/list.txt
+
+          # PART 1 — nếu introStart > 0
+          if [ "$INTRO_START" -gt 0 ]; then
+            ffmpeg -y -i "$IN" -ss 0 -to $INTRO_START -c copy cut/part1.mp4
+            echo "file 'part1.mp4'" >> cut/list.txt
+          fi
+
+          # PART 2 — luôn có
+          ffmpeg -y -i "$IN" -ss $INTRO_END -to $OUTRO_START -c copy cut/part2.mp4
+          echo "file 'part2.mp4'" >> cut/list.txt
+
+          # PART 3 — nếu outroEnd < duration
+          if [ "$OUTRO_END" -lt "$DURATION_INT" ]; then
+            ffmpeg -y -i "$IN" -ss $OUTRO_END -c copy cut/part3.mp4
+            echo "file 'part3.mp4'" >> cut/list.txt
+          fi
+
+          # GHÉP LẠI
+          ffmpeg -y -f concat -safe 0 -i cut/list.txt -c copy "${{ github.event.inputs.name }}-final.mp4"
+
+      - name: Convert to HLS
+        run: |
+          IN="${{ github.event.inputs.name }}-final.mp4"
           mkdir -p output
-          # Dùng bitstream filter để đảm bảo h264 ở Annex B khi đóng gói TS
           ffmpeg -y -i "$IN" \
             -c:v copy -bsf:v h264_mp4toannexb -c:a copy \
             -hls_time 8 -hls_flags split_by_time+independent_segments -hls_list_size 0 \
