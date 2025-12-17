@@ -24,7 +24,7 @@ on:
       bitrate:
         description: 'Bitrate video (ví dụ: 1800k trong khoảng 1500k–2000k)'
         required: false
-        default: '1800k'
+        default: '1000k'
       testDuration:
         description: 'Thời lượng file test (giây)'
         required: false
