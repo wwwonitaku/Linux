@@ -54,7 +54,7 @@ jobs:
         run: |
           set -e
           SRC="${{ github.event.inputs.name }}-source.mp4"
-          ffmpeg -i "${{ github.event.inputs.m3u8link }}" -c copy -bsf:a aac_adtstoasc "$SRC"
+          ffmpeg -i "${{ github.event.inputs.m3u8link }}" -c copy -bsf:a aac_adtstoasc "${{ github.event.inputs.name }}-source.mp4"
 
       - name: Verify video file (size + ffprobe + wait)
         run: |
