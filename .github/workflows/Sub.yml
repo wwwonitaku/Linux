@@ -39,7 +39,9 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Setup FFmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg curl git jq
 
       - name: Install Oswald font (for hard subtitles)
         run: |
