@@ -83,8 +83,8 @@ jobs:
           SUB="${{ github.event.inputs.name }}.srt"
           OUT="${{ github.event.inputs.name }}-sub.mp4"
           ffmpeg -y -i "$SRC" \
-            -vf "subtitles=${SUB}:force_style='Fontname=Oswald,FontSize=38,LineSpacing=-20,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=0.5,Blur=0,Shadow=0.5,Alignment=2'" \
-            -c:v libx264 -preset fast -b:v 1000k \
+            -vf "subtitles=${SUB}:force_style='Fontname=Oswald,FontSize=40,LineSpacing=0,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=0.6,Blur=0,Shadow=0.6,Alignment=2'" \
+            -c:v libx264 -preset fast -b:v 1500k \
             -c:a aac -b:a 128k -movflags +faststart \
             "$OUT"
 
