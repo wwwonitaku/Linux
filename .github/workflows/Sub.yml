@@ -43,13 +43,17 @@ jobs:
           sudo apt update
           sudo apt install -y ffmpeg curl git jq
 
-      - name: Install Oswald font (auto from Google Fonts ZIP)
+      - name: Install Oswald font (from your GitHub repo)
         run: |
           set -e
           mkdir -p $HOME/.local/share/fonts
-          curl -L "https://fonts.google.com/download?family=Oswald" -o Oswald.zip
+          # Tải file Oswald.zip từ repo của bạn
+          curl -L "https://github.com/wwwonitaku/Linux/raw/main/Oswald.zip" -o Oswald.zip
           unzip -o Oswald.zip -d $HOME/.local/share/fonts
           fc-cache -f -v
+          # Kiểm tra font đã nhận diện
+          fc-list | grep -i oswald || (echo "Oswald font not found by fontconfig" && exit 1)
+
 
 
 
