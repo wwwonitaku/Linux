@@ -44,10 +44,11 @@ jobs:
       - name: Install Oswald font (for hard subtitles)
         run: |
           set -e
-          mkdir -p /usr/local/share/fonts
-          curl -L "https://github.com/google/fonts/raw/main/ofl/oswald/Oswald-Regular.ttf" -o /usr/local/share/fonts/Oswald-Regular.ttf
-          curl -L "https://github.com/google/fonts/raw/main/ofl/oswald/Oswald-Bold.ttf" -o /usr/local/share/fonts/Oswald-Bold.ttf
+          mkdir -p $HOME/.local/share/fonts
+          curl -L "https://github.com/google/fonts/raw/main/ofl/oswald/Oswald-Regular.ttf" -o $HOME/.local/share/fonts/Oswald-Regular.ttf
+          curl -L "https://github.com/google/fonts/raw/main/ofl/oswald/Oswald-Bold.ttf" -o $HOME/.local/share/fonts/Oswald-Bold.ttf
           fc-cache -f -v
+
 
       - name: Download video from M3U8
         run: |
