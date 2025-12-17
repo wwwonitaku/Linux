@@ -127,27 +127,6 @@ jobs:
             echo "Subtitle invalid or empty"
             exit 1
           fi
-
-      - name: Render 1-minute hard-sub test (Oswald, yellow + black outline)
-        run: |
-          set -e
-          SRC="${{ github.event.inputs.name }}-source.mp4"
-          SUB="${{ github.event.inputs.name }}.srt"
-          TEST="${{ github.event.inputs.name }}-test.mp4"
-          ffmpeg -y -i "$SRC" \
-            -vf "subtitles=${SUB}:force_style='FontName=Oswald,FontSize=28,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,Alignment=2'" \
-            -t ${{ github.event.inputs.testDuration }} \
-            -c:v libx264 -preset veryfast -b:v ${{ github.event.inputs.bitrate }} -profile:v high -level 4.0 \
-            -c:a aac -b:a 128k -movflags +faststart \
-            "$TEST"
-
-      - name: Upload test artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: "${{ github.event.inputs.name }}-test"
-          path: "${{ github.event.inputs.name }}-test.mp4"
-          if-no-files-found: error
-
       - name: Render full hard-sub video (Oswald, yellow + black outline)
         run: |
           set -e
@@ -155,8 +134,8 @@ jobs:
           SUB="${{ github.event.inputs.name }}.srt"
           OUT="${{ github.event.inputs.name }}-sub.mp4"
           ffmpeg -y -i "$SRC" \
-            -vf "subtitles=${SUB}:force_style='FontName=Oswald,FontSize=28,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,Alignment=2'" \
-            -c:v libx264 -preset veryfast -b:v ${{ github.event.inputs.bitrate }} -profile:v high -level 4.0 \
+            -vf "subtitles=${SUB}:fontsdir=$HOME/.local/share/fonts:force_style='FontName=Oswald,FontSize=24,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1,Shadow=0,Alignment=2'" \
+            -c:v libx264 -preset fast -b:v ${{ github.event.inputs.bitrate }} -profile:v high -level 4.0 \
             -c:a aac -b:a 128k -movflags +faststart \
             "$OUT"
 
