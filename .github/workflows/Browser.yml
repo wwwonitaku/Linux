@@ -22,15 +22,18 @@ jobs:
         run: |
           node - <<'EOF'
           const puppeteer = require('puppeteer');
-
+      
           (async () => {
-            const browser = await puppeteer.launch({ headless: true });
+            const browser = await puppeteer.launch({
+              headless: true,
+              args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
             const page = await browser.newPage();
-
+      
             // Truy cập blog
             await page.goto('https://vltki.blogspot.com/', { waitUntil: 'networkidle2' });
             console.log('Page title:', await page.title());
-
+      
             // Click vào link đầu tiên
             try {
               await page.click('a');
@@ -39,10 +42,10 @@ jobs:
             } catch (err) {
               console.error('Error clicking first link:', err);
             }
-
+      
             // Quay lại
             await page.goBack({ waitUntil: 'networkidle2' });
-
+      
             // Click vào bài viết đầu tiên
             const posts = await page.$$('.post-title a');
             if (posts.length > 0) {
@@ -50,13 +53,14 @@ jobs:
               await page.waitForNavigation({ waitUntil: 'networkidle2' });
               console.log('Clicked post, now at:', page.url());
             }
-
+      
             // Chụp ảnh màn hình
             await page.screenshot({ path: 'result.png', fullPage: true });
-
+      
             await browser.close();
           })();
           EOF
+
 
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
