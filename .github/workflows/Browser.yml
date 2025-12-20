@@ -33,7 +33,7 @@ jobs:
             // Truy cập blog
             await page.goto('https://hhtm.cc/', { waitUntil: 'networkidle2' });
             console.log('Page title:', await page.title());
-            await page.waitForTimeout(60000);
+            await new Promise(resolve => setTimeout(resolve, 60000));
             // Click vào link đầu tiên
             try {
               await page.click('a');
