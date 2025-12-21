@@ -13,16 +13,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-huggingface
+
       - name: Install dependencies
         run: |
-          pip install transformers sentencepiece torch requests
+          pip install transformers sentencepiece torch sacremoses requests
 
       - name: Download subtitle file
         run: |
@@ -31,28 +37,53 @@ jobs:
       - name: Translate VTT subtitle EN -> VI
         run: |
           python - <<'EOF'
+          import re
           from transformers import MarianMTModel, MarianTokenizer
 
           model_name = "Helsinki-NLP/opus-mt-en-vi"
           tokenizer = MarianTokenizer.from_pretrained(model_name)
           model = MarianMTModel.from_pretrained(model_name)
 
+          def clean_text(text):
+              text = re.sub(r"<.*?>", "", text)  # bỏ thẻ HTML
+              text = text.replace("♪", "").strip()
+              return text
+
+          def deduplicate(text):
+              # loại bỏ từ lặp liên tục
+              text = re.sub(r'\b(\w+)( \1){2,}\b', r'\1', text)
+              return text
+
           with open("input.vtt", "r", encoding="utf-8") as f:
               lines = f.readlines()
 
-          translated_lines = []
+          texts = []
           for line in lines:
-              # bỏ qua header, số thứ tự, timestamp
               if line.strip() and not line.strip().isdigit() and "-->" not in line and not line.startswith("WEBVTT"):
-                  inputs = tokenizer([line.strip()], return_tensors="pt", padding=True)
-                  translated = model.generate(**inputs)
-                  output = tokenizer.decode(translated[0], skip_special_tokens=True)
-                  translated_lines.append(output + "\n")
+                  cleaned = clean_text(line.strip())
+                  texts.append(cleaned if cleaned else None)
               else:
-                  translated_lines.append(line)
+                  texts.append(None)
+
+          valid_texts = [t for t in texts if t]
+          if valid_texts:
+              inputs = tokenizer(valid_texts, return_tensors="pt", padding=True, truncation=True)
+              translated = model.generate(**inputs)
+              outputs = [deduplicate(tokenizer.decode(t, skip_special_tokens=True)) for t in translated]
+          else:
+              outputs = []
+
+          out_lines = []
+          j = 0
+          for line, orig in zip(lines, texts):
+              if orig:
+                  out_lines.append(f"<i>{outputs[j]}</i>\n")
+                  j += 1
+              else:
+                  out_lines.append(line)
 
           with open("output_vi.vtt", "w", encoding="utf-8") as f:
-              f.writelines(translated_lines)
+              f.writelines(out_lines)
           EOF
 
       - name: Upload translated subtitle
