@@ -1,0 +1,62 @@
+name: Translate English VTT Subtitle to Vietnamese
+
+on:
+  workflow_dispatch:
+    inputs:
+      subtitle_url:
+        description: 'Link tới file subtitle (.vtt) tiếng Anh'
+        required: true
+        type: string
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install transformers sentencepiece torch requests
+
+      - name: Download subtitle file
+        run: |
+          curl -L "${{ github.event.inputs.subtitle_url }}" -o input.vtt
+
+      - name: Translate VTT subtitle EN -> VI
+        run: |
+          python - <<'EOF'
+          from transformers import MarianMTModel, MarianTokenizer
+
+          model_name = "Helsinki-NLP/opus-mt-en-vi"
+          tokenizer = MarianTokenizer.from_pretrained(model_name)
+          model = MarianMTModel.from_pretrained(model_name)
+
+          with open("input.vtt", "r", encoding="utf-8") as f:
+              lines = f.readlines()
+
+          translated_lines = []
+          for line in lines:
+              # bỏ qua header, số thứ tự, timestamp
+              if line.strip() and not line.strip().isdigit() and "-->" not in line and not line.startswith("WEBVTT"):
+                  inputs = tokenizer([line.strip()], return_tensors="pt", padding=True)
+                  translated = model.generate(**inputs)
+                  output = tokenizer.decode(translated[0], skip_special_tokens=True)
+                  translated_lines.append(output + "\n")
+              else:
+                  translated_lines.append(line)
+
+          with open("output_vi.vtt", "w", encoding="utf-8") as f:
+              f.writelines(translated_lines)
+          EOF
+
+      - name: Upload translated subtitle
+        uses: actions/upload-artifact@v3
+        with:
+          name: translated-vtt
+          path: output_vi.vtt
