@@ -41,114 +41,57 @@ jobs:
           import re
           import torch
           from transformers import MarianMTModel, MarianTokenizer
-
-          # ===== MODEL =====
-          MODEL_NAME = "Helsinki-NLP/opus-mt-en-vi"
-          BATCH_SIZE = 8
-          MAX_LENGTH = 256
-
-          tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
-          model = MarianMTModel.from_pretrained(MODEL_NAME)
+          
+          MODEL = "Helsinki-NLP/opus-mt-en-vi"
+          
+          tokenizer = MarianTokenizer.from_pretrained(MODEL)
+          model = MarianMTModel.from_pretrained(MODEL)
           model.eval()
-
-          # ===== UTIL =====
-          def clean_text(text):
-              text = re.sub(r"<.*?>", "", text)
-              text = text.replace("♪", "").strip()
-              return text
-
-          def protect_proper_nouns(text):
-              """
-              Bảo vệ:
-              - Tên người
-              - Địa danh
-              - Thuật ngữ viết hoa
-              """
-              tokens = re.findall(r"\b[A-Z][a-zA-Z]+\b", text)
+          
+          def clean(text):
+              return re.sub(r"<.*?>", "", text).strip()
+          
+          def protect_names(text):
+              names = re.findall(r"\b[A-Z][a-zA-Z]+\b", text)
               mapping = {}
-              for i, t in enumerate(tokens):
-                  key = f"__PN_{i}__"
-                  mapping[key] = t
-                  text = text.replace(t, key, 1)
+              for i, n in enumerate(names):
+                  k = f"__PN_{i}__"
+                  mapping[k] = n
+                  text = text.replace(n, k, 1)
               return text, mapping
-
-          def restore_proper_nouns(text, mapping):
+          
+          def restore(text, mapping):
               for k, v in mapping.items():
                   text = text.replace(k, v)
               return text
-
-          # ===== READ FILE =====
-          with open("input.vtt", "r", encoding="utf-8") as f:
+          
+          with open("input.vtt", encoding="utf-8") as f:
               lines = f.readlines()
-
-          texts = []
-          meta = []
-          seen_timestamp = False
-
-          for line in lines:
-              stripped = line.strip()
-
-              # Timestamp
-              if "-->" in stripped:
-                  seen_timestamp = True
-                  texts.append(None)
-                  meta.append(None)
-                  continue
-
-              # Không dịch trước timestamp đầu tiên
-              if (
-                  not seen_timestamp
-                  or not stripped
-                  or stripped.isdigit()
-                  or stripped.startswith("WEBVTT")
-              ):
-                  texts.append(None)
-                  meta.append(None)
-                  continue
-
-              clean = clean_text(stripped)
-              frozen, mapping = protect_proper_nouns(clean)
-              texts.append(frozen)
-              meta.append(mapping)
-
-          # ===== TRANSLATE =====
-          valid_texts = [t for t in texts if t]
-          outputs = []
-
+          
+          seen_ts = False
+          out = []
+          
           with torch.no_grad():
-              for i in range(0, len(valid_texts), BATCH_SIZE):
-                  batch = valid_texts[i:i + BATCH_SIZE]
-                  inputs = tokenizer(
-                      batch,
-                      return_tensors="pt",
-                      padding=True,
-                      truncation=True,
-                      max_length=MAX_LENGTH
-                  )
-                  translated = model.generate(
-                      **inputs,
-                      max_length=MAX_LENGTH,
-                      num_beams=4
-                  )
-                  outputs.extend(
-                      tokenizer.decode(t, skip_special_tokens=True)
-                      for t in translated
-                  )
-
-          # ===== WRITE FILE =====
-          out_lines = []
-          j = 0
-
-          for line, orig, mapping in zip(lines, texts, meta):
-              if not orig:
-                  out_lines.append(line)
-              else:
-                  text = restore_proper_nouns(outputs[j], mapping)
-                  out_lines.append(text + "\n")
-                  j += 1
-
+              for line in lines:
+                  s = line.strip()
+          
+                  if "-->" in s:
+                      seen_ts = True
+                      out.append(line)
+                      continue
+          
+                  if not seen_ts or not s or s.isdigit() or s.startswith("WEBVTT"):
+                      out.append(line)
+                      continue
+          
+                  text, mapping = protect_names(clean(s))
+                  inputs = tokenizer([text], return_tensors="pt", truncation=True)
+                  translated = model.generate(**inputs)
+                  vi = tokenizer.decode(translated[0], skip_special_tokens=True)
+                  out.append(restore(vi, mapping) + "\n")
+          
           with open("output_vi.vtt", "w", encoding="utf-8") as f:
-              f.writelines(out_lines)
+              f.writelines(out)
           EOF
 
       - name: Upload translated subtitle
