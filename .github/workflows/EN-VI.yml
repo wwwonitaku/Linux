@@ -40,72 +40,102 @@ jobs:
           import re
           import torch
           from transformers import MarianMTModel, MarianTokenizer
-      
+          
           model_name = "Helsinki-NLP/opus-mt-en-vi"
           tokenizer = MarianTokenizer.from_pretrained(model_name)
           model = MarianMTModel.from_pretrained(model_name)
           model.eval()
-      
-          BATCH_SIZE = 8      # an toàn cho GitHub Actions
-          MAX_LENGTH = 256    # tránh generate quá dài
-      
+          
+          BATCH_SIZE = 8
+          MAX_LENGTH = 256
+          
           def clean_text(text):
               text = re.sub(r"<.*?>", "", text)
               text = text.replace("♪", "").strip()
               return text
-      
-          def deduplicate(text):
-              return re.sub(r'\b(\w+)( \1){2,}\b', r'\1', text)
-      
-          with open("input.vtt", "r", encoding="utf-8") as f:
-              lines = f.readlines()
-      
-          texts = []
-          for line in lines:
-              if line.strip() and not line.strip().isdigit() and "-->" not in line and not line.startswith("WEBVTT"):
-                  cleaned = clean_text(line.strip())
-                  texts.append(cleaned if cleaned else None)
-              else:
-                  texts.append(None)
-      
-          # Lấy các dòng cần dịch
-          valid_texts = [t for t in texts if t]
-      
-          outputs = []
-          if valid_texts:
-              with torch.no_grad():
-                  for i in range(0, len(valid_texts), BATCH_SIZE):
-                      batch = valid_texts[i:i + BATCH_SIZE]
-                      inputs = tokenizer(
-                          batch,
-                          return_tensors="pt",
-                          padding=True,
-                          truncation=True,
-                          max_length=MAX_LENGTH
-                      )
-                      translated = model.generate(
-                          **inputs,
-                          max_length=MAX_LENGTH,
-                          num_beams=4
-                      )
-                      decoded = [
-                          deduplicate(tokenizer.decode(t, skip_special_tokens=True))
-                          for t in translated
-                      ]
-                      outputs.extend(decoded)
-      
-          # Ghi lại VTT
-          out_lines = []
-          j = 0
-          for line, orig in zip(lines, texts):
-              if orig:
-                  out_lines.append(f"<i>{outputs[j]}</i>\n")
-                  j += 1
-              else:
-                  out_lines.append(line)
-      
-          with open("output_vi.vtt", "w", encoding="utf-8") as f:
-              f.writelines(out_lines)
+          
+          def protect_proper_nouns(text):
+              # Bảo vệ từ viết hoa không ở đầu câu
+              tokens = re.findall(r"\b[A-Z][a-zA-Z]+\b", text)
+              mapping = {}
+              for i, t in enumerate(tokens):
+                  key = f"__PN_{i}__"
+                  mapping[key] = t
+                  text = text.replace(t, key, 1)
+              return text, mapping
+          
+        def restore_proper_nouns(text, mapping):
+            for k, v in mapping.items():
+                text = text.replace(k, v)
+            return text
+        
+        with open("input.vtt", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        texts = []
+        meta = []
+        seen_timestamp = False
+        
+        for line in lines:
+            stripped = line.strip()
+        
+            if "-->" in stripped:
+                seen_timestamp = True
+                texts.append(None)
+                meta.append(None)
+                continue
+        
+            if (
+                not seen_timestamp
+                or not stripped
+                or stripped.isdigit()
+                or stripped.startswith("WEBVTT")
+            ):
+                texts.append(None)
+                meta.append(None)
+                continue
+        
+            clean = clean_text(stripped)
+            frozen, mapping = protect_proper_nouns(clean)
+            texts.append(frozen)
+            meta.append(mapping)
+        
+        valid_texts = [t for t in texts if t]
+        
+        outputs = []
+        with torch.no_grad():
+            for i in range(0, len(valid_texts), BATCH_SIZE):
+                batch = valid_texts[i:i + BATCH_SIZE]
+                inputs = tokenizer(
+                    batch,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=MAX_LENGTH
+                )
+                translated = model.generate(
+                    **inputs,
+                    max_length=MAX_LENGTH,
+                    num_beams=4
+                )
+                outputs.extend(
+                    tokenizer.decode(t, skip_special_tokens=True)
+                    for t in translated
+                )
+        
+        out_lines = []
+        j = 0
+        
+        for line, orig, mapping in zip(lines, texts, meta):
+            if not orig:
+                out_lines.append(line)
+            else:
+                text = restore_proper_nouns(outputs[j], mapping)
+                out_lines.append(text + "\n")  # ❗ KHÔNG tự thêm <i>
+                j += 1
+        
+        with open("output_vi.vtt", "w", encoding="utf-8") as f:
+            f.writelines(out_lines)
           EOF
 
 
