@@ -92,7 +92,7 @@ jobs:
           FPS_INT=$(echo "$FPS_RAW" | awk -F/ '{if (NF==2) printf "%.0f", $1/$2; else printf "%.0f", $1}')
           [ -z "$FPS_INT" ] && FPS_INT=24  # fallback an toàn
 
-          GOP=$((FPS_INT * 3))
+          GOP=$((FPS_INT * 4))
           echo "Detected r_frame_rate=$FPS_RAW -> fps≈$FPS_INT, GOP=$GOP"
 
           ffmpeg -y -i "$SRC" \
@@ -151,7 +151,7 @@ jobs:
           mkdir -p output
           ffmpeg -y -i "$IN" \
             -c:v copy -bsf:v h264_mp4toannexb -c:a copy \
-            -hls_time 9  -hls_list_size 0 -start_number 10001 \
+            -hls_time 8 -hls_list_size 0 -start_number 10001 \
             -hls_segment_filename "output/${{ github.event.inputs.name }}-index%05d.png" \
             -f hls "output/${{ github.event.inputs.name }}.m3u8"
 
