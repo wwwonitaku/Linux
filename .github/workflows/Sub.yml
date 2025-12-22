@@ -77,23 +77,23 @@ jobs:
           OUT="${{ github.event.inputs.name }}.srt"
           ffmpeg -y -i "$RAW" "$OUT" || mv "$RAW" "$OUT"
 
-      - name: Render full hard-sub video (auto GOP 3s)
+      - name: Render full hard-sub video (auto 3s keyframe)
         run: |
           SRC="${{ github.event.inputs.name }}-source.mp4"
           SUB="${{ github.event.inputs.name }}.srt"
           OUT="${{ github.event.inputs.name }}-sub.mp4"
 
-          # Lấy fps gốc
-          FPS=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
+          # Lấy fps gốc (có thể là dạng 24000/1001, 25/1, 30, ...)
+          FPS_RAW=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
             -of default=noprint_wrappers=1:nokey=1 "$SRC")
-          # Tính fps thực (ví dụ 24000/1001 ≈ 23.976)
-          FPS_REAL=$(echo "$FPS" | bc -l)
-          FPS_INT=$(printf "%.0f" "$FPS_REAL")
 
-          # Tính GOP = fps × 3
+          # Chuyển sang số nguyên gần đúng để tính GOP (không cần cài bc)
+          # Ví dụ: 24000/1001 -> 24; 30000/1001 -> 30; 29.97 -> 30; 25 -> 25
+          FPS_INT=$(echo "$FPS_RAW" | awk -F/ '{if (NF==2) printf "%.0f", $1/$2; else printf "%.0f", $1}')
+          [ -z "$FPS_INT" ] && FPS_INT=24  # fallback an toàn
+
           GOP=$((FPS_INT * 3))
-
-          echo "Detected FPS=$FPS_REAL (~$FPS_INT), GOP=$GOP"
+          echo "Detected r_frame_rate=$FPS_RAW -> fps≈$FPS_INT, GOP=$GOP"
 
           ffmpeg -y -i "$SRC" \
             -vf "subtitles=${SUB}:force_style='Fontname=Oswald,FontSize=40,LineSpacing=0,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=0.6,Blur=0,Shadow=0.6,Alignment=2'" \
@@ -113,30 +113,36 @@ jobs:
           OUTRO_START=${{ github.event.inputs.outroStart }}
           OUTRO_END=${{ github.event.inputs.outroEnd }}
 
+          # Nếu cả 4 đều = 0 → bỏ qua cắt
           if [ "$INTRO_START" -eq 0 ] && [ "$INTRO_END" -eq 0 ] && [ "$OUTRO_START" -eq 0 ] && [ "$OUTRO_END" -eq 0 ]; then
             cp "$IN" "${{ github.event.inputs.name }}-final.mp4"
             exit 0
           fi
 
+          # Lấy duration video
           DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$IN")
           DURATION_INT=${DURATION%.*}
 
           mkdir -p cut
           rm -f cut/list.txt
 
+          # PART 1 — nếu introStart > 0
           if [ "$INTRO_START" -gt 0 ]; then
-            ffmpeg -y -ss 0 -i "$IN" -to $INTRO_START -c copy cut/part1.mp4
+            ffmpeg -y  -ss 0 -i "$IN" -to $INTRO_START -c copy cut/part1.mp4
             echo "file 'part1.mp4'" >> cut/list.txt
           fi
 
+          # PART 2 — luôn có
           ffmpeg -y -ss $INTRO_END -i "$IN" -to $OUTRO_START -c copy cut/part2.mp4
           echo "file 'part2.mp4'" >> cut/list.txt
 
+          # PART 3 — nếu outroEnd < duration
           if [ "$OUTRO_END" -lt "$DURATION_INT" ]; then
             ffmpeg -y -ss $OUTRO_END -i "$IN" -c copy cut/part3.mp4
             echo "file 'part3.mp4'" >> cut/list.txt
           fi
 
+          # GHÉP LẠI
           ffmpeg -y -f concat -safe 0 -i cut/list.txt -c copy "${{ github.event.inputs.name }}-final.mp4"
 
       - name: Convert to HLS
@@ -145,8 +151,8 @@ jobs:
           mkdir -p output
           ffmpeg -y -i "$IN" \
             -c:v copy -bsf:v h264_mp4toannexb -c:a copy \
-            -hls_time 9 -hls_list_size 0 -start_number 10001 \
-            -hls_segment_filename "output/${{ github.event.inputs.name }}-index%05d.ts" \
+            -hls_time 9  -hls_list_size 0 -start_number 10001 \
+            -hls_segment_filename "output/${{ github.event.inputs.name }}-index%05d.png" \
             -f hls "output/${{ github.event.inputs.name }}.m3u8"
 
       - name: Deploy to Cloudflare Pages
