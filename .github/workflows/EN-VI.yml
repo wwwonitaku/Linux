@@ -29,46 +29,61 @@ jobs:
       - name: Install dependencies
         run: |
           pip install transformers sentencepiece torch sacremoses requests
+
       - name: Download subtitle file
         run: |
           curl -L "${{ github.event.inputs.subtitle_url }}" -o input.vtt
+
       - name: Translate VTT subtitle EN -> VI
         run: |
           python - <<'EOF'
           import re
           import torch
           from transformers import MarianMTModel, MarianTokenizer
-      
+
           model_name = "Helsinki-NLP/opus-mt-en-vi"
           tokenizer = MarianTokenizer.from_pretrained(model_name)
           model = MarianMTModel.from_pretrained(model_name)
           model.eval()
-      
-          BATCH_SIZE = 8      # an toàn cho GitHub Actions
-          MAX_LENGTH = 256    # tránh generate quá dài
-      
+
+          BATCH_SIZE = 8
+          MAX_LENGTH = 256
+
           def clean_text(text):
               text = re.sub(r"<.*?>", "", text)
               text = text.replace("♪", "").strip()
               return text
-      
-          def deduplicate(text):
-              return re.sub(r'\b(\w+)( \1){2,}\b', r'\1', text)
-      
+
+          def protect_proper_nouns(text):
+              words = text.split()
+              protected = []
+              for w in words:
+                  if w[:1].isupper():
+                      protected.append(f"@@{w}@@")
+                  else:
+                      protected.append(w)
+              return " ".join(protected)
+
+          def restore_proper_nouns(text):
+              return re.sub(r"@@(.*?)@@", r"\1", text)
+
           with open("input.vtt", "r", encoding="utf-8") as f:
               lines = f.readlines()
-      
+
           texts = []
           for line in lines:
-              if line.strip() and not line.strip().isdigit() and "-->" not in line and not line.startswith("WEBVTT"):
-                  cleaned = clean_text(line.strip())
-                  texts.append(cleaned if cleaned else None)
+              stripped = line.strip()
+
+              if stripped == "WEBVTT":
+                  texts.append(None)
+              elif stripped and not stripped.isdigit() and "-->" not in stripped:
+                  cleaned = clean_text(stripped)
+                  texts.append(protect_proper_nouns(cleaned) if cleaned else None)
               else:
                   texts.append(None)
-      
-          # Lấy các dòng cần dịch
+
           valid_texts = [t for t in texts if t]
-      
+
           outputs = []
           if valid_texts:
               with torch.no_grad():
@@ -87,25 +102,25 @@ jobs:
                           num_beams=4
                       )
                       decoded = [
-                          deduplicate(tokenizer.decode(t, skip_special_tokens=True))
+                          restore_proper_nouns(
+                              tokenizer.decode(t, skip_special_tokens=True)
+                          )
                           for t in translated
                       ]
                       outputs.extend(decoded)
-      
-          # Ghi lại VTT
+
           out_lines = []
           j = 0
           for line, orig in zip(lines, texts):
               if orig:
-                  out_lines.append(f"<i>{outputs[j]}</i>\n")
+                  out_lines.append(line.replace(line.strip(), outputs[j]))
                   j += 1
               else:
                   out_lines.append(line)
-      
+
           with open("output_vi.vtt", "w", encoding="utf-8") as f:
               f.writelines(out_lines)
           EOF
-
 
       - name: Upload translated subtitle
         uses: actions/upload-artifact@v4
