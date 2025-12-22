@@ -11,7 +11,6 @@ on:
 jobs:
   translate:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -30,69 +29,83 @@ jobs:
       - name: Install dependencies
         run: |
           pip install transformers sentencepiece torch sacremoses requests
-
       - name: Download subtitle file
         run: |
           curl -L "${{ github.event.inputs.subtitle_url }}" -o input.vtt
-
       - name: Translate VTT subtitle EN -> VI
         run: |
           python - <<'EOF'
           import re
           import torch
           from transformers import MarianMTModel, MarianTokenizer
-          
-          MODEL = "Helsinki-NLP/opus-mt-en-vi"
-          
-          tokenizer = MarianTokenizer.from_pretrained(MODEL)
-          model = MarianMTModel.from_pretrained(MODEL)
+      
+          model_name = "Helsinki-NLP/opus-mt-en-vi"
+          tokenizer = MarianTokenizer.from_pretrained(model_name)
+          model = MarianMTModel.from_pretrained(model_name)
           model.eval()
-          
-          def clean(text):
-              return re.sub(r"<.*?>", "", text).strip()
-          
-          def protect_names(text):
-              names = re.findall(r"\b[A-Z][a-zA-Z]+\b", text)
-              mapping = {}
-              for i, n in enumerate(names):
-                  k = f"__PN_{i}__"
-                  mapping[k] = n
-                  text = text.replace(n, k, 1)
-              return text, mapping
-          
-          def restore(text, mapping):
-              for k, v in mapping.items():
-                  text = text.replace(k, v)
+      
+          BATCH_SIZE = 8      # an toàn cho GitHub Actions
+          MAX_LENGTH = 256    # tránh generate quá dài
+      
+          def clean_text(text):
+              text = re.sub(r"<.*?>", "", text)
+              text = text.replace("♪", "").strip()
               return text
-          
-          with open("input.vtt", encoding="utf-8") as f:
+      
+          def deduplicate(text):
+              return re.sub(r'\b(\w+)( \1){2,}\b', r'\1', text)
+      
+          with open("input.vtt", "r", encoding="utf-8") as f:
               lines = f.readlines()
-          
-          seen_ts = False
-          out = []
-          
-          with torch.no_grad():
-              for line in lines:
-                  s = line.strip()
-          
-                  if "-->" in s:
-                      seen_ts = True
-                      out.append(line)
-                      continue
-          
-                  if not seen_ts or not s or s.isdigit() or s.startswith("WEBVTT"):
-                      out.append(line)
-                      continue
-          
-                  text, mapping = protect_names(clean(s))
-                  inputs = tokenizer([text], return_tensors="pt", truncation=True)
-                  translated = model.generate(**inputs)
-                  vi = tokenizer.decode(translated[0], skip_special_tokens=True)
-                  out.append(restore(vi, mapping) + "\n")
-          
+      
+          texts = []
+          for line in lines:
+              if line.strip() and not line.strip().isdigit() and "-->" not in line and not line.startswith("WEBVTT"):
+                  cleaned = clean_text(line.strip())
+                  texts.append(cleaned if cleaned else None)
+              else:
+                  texts.append(None)
+      
+          # Lấy các dòng cần dịch
+          valid_texts = [t for t in texts if t]
+      
+          outputs = []
+          if valid_texts:
+              with torch.no_grad():
+                  for i in range(0, len(valid_texts), BATCH_SIZE):
+                      batch = valid_texts[i:i + BATCH_SIZE]
+                      inputs = tokenizer(
+                          batch,
+                          return_tensors="pt",
+                          padding=True,
+                          truncation=True,
+                          max_length=MAX_LENGTH
+                      )
+                      translated = model.generate(
+                          **inputs,
+                          max_length=MAX_LENGTH,
+                          num_beams=4
+                      )
+                      decoded = [
+                          deduplicate(tokenizer.decode(t, skip_special_tokens=True))
+                          for t in translated
+                      ]
+                      outputs.extend(decoded)
+      
+          # Ghi lại VTT
+          out_lines = []
+          j = 0
+          for line, orig in zip(lines, texts):
+              if orig:
+                  out_lines.append(f"<i>{outputs[j]}</i>\n")
+                  j += 1
+              else:
+                  out_lines.append(line)
+      
           with open("output_vi.vtt", "w", encoding="utf-8") as f:
-              f.writelines(out)
+              f.writelines(out_lines)
           EOF
+
 
       - name: Upload translated subtitle
         uses: actions/upload-artifact@v4
