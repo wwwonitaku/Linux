@@ -98,7 +98,7 @@ jobs:
           ffmpeg -y -i "$SRC" \
             -vf "subtitles=${SUB}:force_style='Fontname=Oswald,FontSize=39,LineSpacing=-20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=0.4,Blur=0,Shadow=0.6,Alignment=2'" \
             -r $FPS_INT \
-            -c:v libx264 -preset normal -b:v 1000k \
+            -c:v libx264 -preset medium -b:v 1000k \
             -g $GOP -keyint_min $GOP -sc_threshold 0 \
             -c:a aac -b:a 128k -movflags +faststart \
             "$OUT"
