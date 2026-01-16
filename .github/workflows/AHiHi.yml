@@ -1,4 +1,4 @@
-name: AHiHi to CF (AI Anime Master - Strictly Original Specs + Fix TTS)
+name: AHiHi -> CF
 
 on:
   workflow_dispatch:
