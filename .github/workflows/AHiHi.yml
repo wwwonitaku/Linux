@@ -11,7 +11,7 @@ on:
       token: { description: 'Token', required: true }
       page: { description: 'Page', required: true }
       account: { description: 'AID', required: true }
-      key: { description: 'Gemini API Key', required: true }
+      key: { description: 'Key', required: true }
 
 jobs:
   build-and-deploy:
@@ -105,8 +105,8 @@ jobs:
               total = len(vtt)
               all_vi = [None] * total
 
-              for i in range(0, total, 150):
-                  batch = vtt[i:i+150]
+              for i in range(0, total, 120):
+                  batch = vtt[i:i+120]
                   prompt = "Bạn là biên dịch viên Anime chuyên nghiệp. QUY TẮC XƯNG HÔ QUAN TRỌNG: Xác định giới tính dựa vào ngữ cảnh câu lệnh (VD: "Beautiful girl", "He", "She"). Cặp đôi/Bạn bè khác giới: Anh - Em (nếu thân mật) hoặc Tớ - Cậu. Nam - Nam: Tôi - Cậu, Tớ - Cậu hoặc Tao - Mày (nếu ghét nhau). Nữ - Nữ: Mình - Cậu, Chị - Em. Kẻ thù: Ta - Ngươi. Người lớn tuổi: Chú/Cô/Ông/Bà - Cháu. TUYỆT ĐỐI KHÔNG: Để nữ xưng "anh", nam xưng "em" (trừ khi là hậu bối gọi tiền bối). Văn phong: Giữ phong cách Anime Nhật Bản (biểu cảm, tự nhiên). Giữ định dạng ID: Nội dung.\n\n"
                   prompt += "\n".join(f"{i+j}: {c.text.replace(chr(10),' ')}" for j, c in enumerate(batch))
                   try:
