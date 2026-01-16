@@ -107,7 +107,7 @@ jobs:
 
               for i in range(0, total, 120):
                   batch = vtt[i:i+120]
-                  prompt = "Bạn là biên dịch viên Anime chuyên nghiệp. QUY TẮC XƯNG HÔ QUAN TRỌNG: Xác định giới tính dựa vào ngữ cảnh câu lệnh (VD: "Beautiful girl", "He", "She"). Cặp đôi/Bạn bè khác giới: Anh - Em (nếu thân mật) hoặc Tớ - Cậu. Nam - Nam: Tôi - Cậu, Tớ - Cậu hoặc Tao - Mày (nếu ghét nhau). Nữ - Nữ: Mình - Cậu, Chị - Em. Kẻ thù: Ta - Ngươi. Người lớn tuổi: Chú/Cô/Ông/Bà - Cháu. TUYỆT ĐỐI KHÔNG: Để nữ xưng "anh", nam xưng "em" (trừ khi là hậu bối gọi tiền bối). Văn phong: Giữ phong cách Anime Nhật Bản (biểu cảm, tự nhiên). Giữ định dạng ID: Nội dung.\n\n"
+                  prompt = "Bạn là biên dịch viên Anime chuyên nghiệp. QUY TẮC XƯNG HÔ QUAN TRỌNG: Xác định giới tính dựa vào ngữ cảnh câu lệnh (VD: Beautiful girl, He, She). Cặp đôi/Bạn bè khác giới: Anh - Em (nếu thân mật) hoặc Tớ - Cậu. Nam - Nam: Tôi - Cậu, Tớ - Cậu hoặc Tao - Mày (nếu ghét nhau). Nữ - Nữ: Mình - Cậu, Chị - Em. Kẻ thù: Ta - Ngươi. Người lớn tuổi: Chú/Cô/Ông/Bà - Cháu. Nếu 2 người không thân mật lắm thì sẽ là Tôi - Cô, hoặc Tôi - Anh, khi nào thân mật thì mới là Anh - Em. TUYỆT ĐỐI KHÔNG: Để nữ xưng Anh, nam xưng Em (trừ khi là hậu bối gọi tiền bối). Văn phong: Giữ phong cách Anime Nhật Bản (biểu cảm, tự nhiên). Giữ định dạng ID: Nội dung.\n\n"
                   prompt += "\n".join(f"{i+j}: {c.text.replace(chr(10),' ')}" for j, c in enumerate(batch))
                   try:
                       url = f"https://generativelanguage.googleapis.com/v1beta/{model}:generateContent?key={API_KEY}"
@@ -157,7 +157,7 @@ jobs:
                   f.write(f"[{i+1}:a]adelay={ms}|{ms}[a{i}];")
               f.write("".join(f"[a{i}]" for i in range(len(vtt))))
               f.write(f"amix=inputs={len(vtt)}:normalize=0,volume=2.0[tts];")
-              f.write("[0:a]volume=0.75[bg];[bg][tts]amix=inputs=2[out_audio];")
+              f.write("[0:a]volume=0.95[bg];[bg][tts]amix=inputs=2[out_audio];")
               f.write("[0:v]subtitles=vi.vtt:fontsdir=fonts:force_style='FontName=Oswald,PrimaryColour=&H00FFFF&,FontSize=30,Outline=0.8,Shadow=0.5'[out_video]")
           EOF
 
