@@ -105,9 +105,9 @@ jobs:
               total = len(vtt)
               all_vi = [None] * total
 
-              for i in range(0, total, 100):
-                  batch = vtt[i:i+100]
-                  prompt = "Dịch sang tiếng Việt (Anime style). Giữ định dạng ID: Nội dung.\n\n"
+              for i in range(0, total, 150):
+                  batch = vtt[i:i+150]
+                  prompt = "Dịch sang tiếng Việt phong cách Anime Nhật Bản. Cố gắng giữ nguyên ngữ cảnh, cẩn thận trong các đại từ nhân xưng tùy thuộc vào ngữ cảnh. Giữ định dạng ID: Nội dung.\n\n"
                   prompt += "\n".join(f"{i+j}: {c.text.replace(chr(10),' ')}" for j, c in enumerate(batch))
                   try:
                       url = f"https://generativelanguage.googleapis.com/v1beta/{model}:generateContent?key={API_KEY}"
