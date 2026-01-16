@@ -64,7 +64,7 @@ jobs:
               try:
                   res = requests.get(f"https://generativelanguage.googleapis.com/v1/models?key={API_KEY}").json()
                   # Ưu tiên Gemini 2.5 theo đúng bản chuẩn của bạn
-                  for t in ['gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-flash']:
+                  for t in ['gemini-2.0-flash','gemini-1.5-flash']:
                       for m in res.get('models', []):
                           if t in m['name']: return m['name']
                   return res['models'][0]['name']
