@@ -1,4 +1,4 @@
-name: AHiHi -> CF (Audio Sync)
+name: AHiHi -> CF (Audio Sync Optimized)
 
 on:
   workflow_dispatch:
@@ -56,100 +56,83 @@ jobs:
           ffmpeg -y -i original.mp4  -ac 1 -ar 16000 original.wav
           ffmpeg -y -i narration.mp4 -ac 1 -ar 16000 narration.wav
 
-      - name: Align audio & build final track
+      - name: Align audio & build final track (Smart Multi-Anchor)
         run: |
           python3 <<'EOF'
           import librosa, numpy as np, soundfile as sf
-          from scipy.signal import butter, filtfilt
-          from scipy.spatial.distance import cosine
+          from scipy.signal import correlate
 
           SR = 16000
-          WIN_SEC = 6
-          STEP_SEC = 2
-          SIM_THRESHOLD = 0.92
+          CHUNK_SEC = 10  # Kiểm tra từng đoạn 10 giây
+          STEP_SEC = 5    # Nhảy bước 5 giây
+          SEARCH_MARGIN = 40 # Tìm kiếm trong phạm vi +/- 40s so với vị trí tương đối
 
           def log(msg):
               print(f"[DEBUG] {msg}")
 
-          def bandstop_voice(y):
-              b, a = butter(4, [300/(SR/2), 3400/(SR/2)], btype="bandstop")
-              return filtfilt(b, a, y)
-
-          def fingerprint(y):
-              mfcc = librosa.feature.mfcc(y=y, sr=SR, n_mfcc=20)
-              return np.mean(mfcc, axis=1)
-
           # ===== LOAD =====
-          orig_raw, _ = librosa.load("original.wav", sr=SR, mono=True)
-          nar_raw,  _ = librosa.load("narration.wav", sr=SR, mono=True)
+          log("Loading files...")
+          orig_raw, _ = librosa.load("original.wav", sr=SR)
+          nar_raw,  _ = librosa.load("narration.wav", sr=SR)
 
-          dur_o = len(orig_raw)/SR
-          dur_n = len(nar_raw)/SR
+          # Tạo envelope để so khớp (giúp bỏ qua sự khác biệt về giọng nói, tập trung vào môi trường/nhạc)
+          def get_env(y):
+              return librosa.resample(np.abs(y), orig_sr=SR, target_sr=400)
 
-          log(f"Original duration  : {dur_o:.2f}s")
-          log(f"Narration duration : {dur_n:.2f}s")
-          log(f"Duration delta     : {abs(dur_o-dur_n):.2f}s")
+          log("Processing envelopes...")
+          ENV_SR = 400
+          env_o = get_env(orig_raw)
+          env_n = get_env(nar_raw)
 
-          # ===== REMOVE VOICE =====
-          orig = bandstop_voice(orig_raw)
-          nar  = bandstop_voice(nar_raw)
+          win = CHUNK_SEC * ENV_SR
+          step = STEP_SEC * ENV_SR
+          margin = SEARCH_MARGIN * ENV_SR
 
-          log(f"RMS original filtered  : {np.sqrt(np.mean(orig**2)):.6f}")
-          log(f"RMS narration filtered : {np.sqrt(np.mean(nar**2)):.6f}")
+          final_audio = orig_raw.copy()
+          weights = np.zeros_like(orig_raw)
+          
+          last_o_idx = 0
+          anchors_found = 0
 
-          # ===== WINDOWING =====
-          win = int(WIN_SEC * SR)
-          step = int(STEP_SEC * SR)
+          log("Scanning for anchors...")
+          for i in range(0, len(env_n) - win, step):
+              chunk = env_n[i : i + win]
+              
+              # Xác định vùng tìm kiếm xung quanh vị trí hiện tại
+              search_start = max(last_o_idx, i - margin)
+              search_end = min(len(env_o), i + margin + win)
+              
+              if search_end - search_start < win: continue
+              
+              search_area = env_o[search_start : search_end]
+              corr = correlate(search_area, chunk, mode='valid')
+              
+              if len(corr) == 0: continue
+              
+              best_local_idx = np.argmax(corr)
+              best_o_idx = search_start + best_local_idx
+              
+              # Độ tin cậy (Correlation score) - có thể tinh chỉnh ngưỡng nếu cần
+              conf = corr[best_local_idx]
+              
+              # Kiểm tra tính logic (Monotonicity)
+              if best_o_idx >= last_o_idx:
+                  # Map về sample rate gốc 16k
+                  o_start_smp = int((best_o_idx / ENV_SR) * SR)
+                  n_start_smp = int((i / ENV_SR) * SR)
+                  len_smp = int(CHUNK_SEC * SR)
+                  
+                  if o_start_smp + len_smp <= len(final_audio):
+                      # Ghi đè narration vào vùng tương ứng của original
+                      final_audio[o_start_smp : o_start_smp + len_smp] = nar_raw[n_start_smp : n_start_smp + len_smp]
+                      last_o_idx = best_o_idx
+                      anchors_found += 1
+                      if anchors_found % 20 == 0:
+                          log(f"Matched {anchors_found} anchors... current pos: {o_start_smp/SR:.2f}s")
 
-          o_fp, o_t = [], []
-          for i in range(0, len(orig)-win, step):
-              o_fp.append(fingerprint(orig[i:i+win]))
-              o_t.append(i/SR)
-
-          n_fp, n_t = [], []
-          for i in range(0, len(nar)-win, step):
-              n_fp.append(fingerprint(nar[i:i+win]))
-              n_t.append(i/SR)
-
-          log(f"Original windows  : {len(o_fp)}")
-          log(f"Narration windows : {len(n_fp)}")
-
-          # ===== MATCH =====
-          raw = []
-          for i, f1 in enumerate(o_fp):
-              for j, f2 in enumerate(n_fp):
-                  sim = 1 - cosine(f1, f2)
-                  if sim >= SIM_THRESHOLD:
-                      raw.append((o_t[i], n_t[j], sim))
-
-          log(f"Raw matches found : {len(raw)}")
-
-          # ===== FILTER ORDER =====
-          anchors = []
-          last_n = -1
-          for o, n, s in sorted(raw):
-              if n > last_n:
-                  anchors.append((o, n, s))
-                  last_n = n
-
-          log(f"Valid anchors     : {len(anchors)}")
-
-          for o, n, s in anchors[:10]:
-              log(f"Anchor O:{o:.2f}s <-> N:{n:.2f}s sim={s:.3f}")
-
-          # ===== MERGE =====
-          final = orig_raw.copy()
-
-          for o, n, _ in anchors:
-              oi = int(o * SR)
-              ni = int(n * SR)
-              length = min(win, len(nar_raw)-ni, len(final)-oi)
-              if length > 0:
-                  final[oi:oi+length] = nar_raw[ni:ni+length]
-                  log(f"Merged O:{o:.2f}s ← N:{n:.2f}s len={length/SR:.2f}s")
-
-          sf.write("final_audio.wav", final, SR)
-          log("Final audio written")
+          log(f"Total anchors matched: {anchors_found}")
+          sf.write("final_audio.wav", final_audio, SR)
+          log("Final audio built successfully")
           EOF
 
       - name: Mux final video
