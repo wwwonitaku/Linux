@@ -27,13 +27,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-
-      - name: Setup FFmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v2
-
+          
       - name: Setup Python
         run: |
           sudo apt update
+          sudo apt install -y ffmpeg curl git jq unzip
           sudo apt install -y python3 python3-pip
           python3 -m pip install --upgrade pip
           python3 -m pip install numpy scipy librosa soundfile
