@@ -45,7 +45,7 @@ jobs:
 
       - name: Download original video
         run: |
-          ffmpeg -y -i "${{ github.event.inputs.link_video }}" -c copy original.mp4
+          ffmpeg -y -i "${{ github.event.inputs.link_video }}" -c copy -bsf:a aac_adtstoasc original.mp4
 
       - name: Download narration video (abyss-dl)
         run: |
