@@ -1,4 +1,4 @@
-name: AHiHi -> CF (Audio Sync Optimized)
+name: AHiHi -> CF (Audio Sync)
 
 on:
   workflow_dispatch:
@@ -56,83 +56,100 @@ jobs:
           ffmpeg -y -i original.mp4  -ac 1 -ar 16000 original.wav
           ffmpeg -y -i narration.mp4 -ac 1 -ar 16000 narration.wav
 
-      - name: Align audio & build final track (Smart Multi-Anchor)
+      - name: Align audio & build final track
         run: |
           python3 <<'EOF'
           import librosa, numpy as np, soundfile as sf
           from scipy.signal import correlate
 
           SR = 16000
-          CHUNK_SEC = 10  # Kiểm tra từng đoạn 10 giây
-          STEP_SEC = 5    # Nhảy bước 5 giây
-          SEARCH_MARGIN = 40 # Tìm kiếm trong phạm vi +/- 40s so với vị trí tương đối
-
+          WIN_SEC = 5     # Phân tích từng đoạn 5 giây
+          STEP_SEC = 2    # Nhảy bước 2 giây để đảm bảo độ mịn
+          
           def log(msg):
               print(f"[DEBUG] {msg}")
 
-          # ===== LOAD =====
-          log("Loading files...")
-          orig_raw, _ = librosa.load("original.wav", sr=SR)
-          nar_raw,  _ = librosa.load("narration.wav", sr=SR)
-
-          # Tạo envelope để so khớp (giúp bỏ qua sự khác biệt về giọng nói, tập trung vào môi trường/nhạc)
-          def get_env(y):
-              return librosa.resample(np.abs(y), orig_sr=SR, target_sr=400)
-
-          log("Processing envelopes...")
-          ENV_SR = 400
-          env_o = get_env(orig_raw)
-          env_n = get_env(nar_raw)
-
-          win = CHUNK_SEC * ENV_SR
-          step = STEP_SEC * ENV_SR
-          margin = SEARCH_MARGIN * ENV_SR
-
-          final_audio = orig_raw.copy()
-          weights = np.zeros_like(orig_raw)
+          # 1. LOAD & PRE-PROCESS
+          log("Đang tải dữ liệu âm thanh...")
+          y_o, _ = librosa.load("original.wav", sr=SR)
+          y_n, _ = librosa.load("narration.wav", sr=SR)
           
-          last_o_idx = 0
-          anchors_found = 0
+          dur_o = len(y_o)/SR
+          dur_n = len(y_n)/SR
+          log(f"Thời lượng Gốc: {dur_o:.2f}s | Thuyết minh: {dur_n:.2f}s")
 
-          log("Scanning for anchors...")
-          for i in range(0, len(env_n) - win, step):
-              chunk = env_n[i : i + win]
+          # Trích xuất đặc trưng (Mel-spectrogram) để so sánh cấu trúc âm thanh
+          def get_env(y):
+              # Dùng biên độ tổng quát để tìm nhịp điệu (envelope)
+              return librosa.resample(np.abs(y), orig_sr=SR, target_sr=200)
+
+          ENV_SR = 200
+          env_o = get_env(y_o)
+          env_n = get_env(y_n)
+
+          # 2. TÌM ĐIỂM KHỚP ĐẦU VÀ CUỐI (GLOBAL ALIGNMENT)
+          log("Đang quét tìm điểm neo tổng thể...")
+          # Thử khớp 20 giây đầu của narration vào 60 giây đầu của original
+          sample_len = 20 * ENV_SR
+          if len(env_n) > sample_len and len(env_o) > sample_len:
+              corr_start = correlate(env_o[:60*ENV_SR], env_n[:sample_len], mode='valid')
+              start_offset = np.argmax(corr_start) / ENV_SR
+              log(f"Độ khớp điểm đầu dự kiến: {start_offset:.2f}s (Narration bắt đầu tại giây này trong Video Gốc)")
+          else:
+              start_offset = 0
+
+          # 3. PHÂN TÍCH ĐA ĐIỂM (MULTI-ANCHOR SCANNING)
+          log("Bắt đầu quét đa điểm để xử lý cắt ghép...")
+          anchors = []
+          win_size = WIN_SEC * ENV_SR
+          step_size = STEP_SEC * ENV_SR
+
+          last_o_idx = int(start_offset * ENV_SR)
+          
+          for i in range(0, len(env_n) - win_size, step_size):
+              chunk = env_n[i : i + win_size]
+              # Tìm trong phạm vi hẹp quanh vị trí dự kiến (+/- 20s) để tránh lặp lại
+              search_min = max(0, last_o_idx - 5 * ENV_SR)
+              search_max = min(len(env_o), last_o_idx + 25 * ENV_SR)
               
-              # Xác định vùng tìm kiếm xung quanh vị trí hiện tại
-              search_start = max(last_o_idx, i - margin)
-              search_end = min(len(env_o), i + margin + win)
+              if search_max - search_min < win_size: continue
               
-              if search_end - search_start < win: continue
-              
-              search_area = env_o[search_start : search_end]
+              search_area = env_o[search_min : search_max]
               corr = correlate(search_area, chunk, mode='valid')
-              
-              if len(corr) == 0: continue
-              
               best_local_idx = np.argmax(corr)
-              best_o_idx = search_start + best_local_idx
               
-              # Độ tin cậy (Correlation score) - có thể tinh chỉnh ngưỡng nếu cần
-              conf = corr[best_local_idx]
+              current_o_idx = search_min + best_local_idx
               
-              # Kiểm tra tính logic (Monotonicity)
-              if best_o_idx >= last_o_idx:
-                  # Map về sample rate gốc 16k
-                  o_start_smp = int((best_o_idx / ENV_SR) * SR)
-                  n_start_smp = int((i / ENV_SR) * SR)
-                  len_smp = int(CHUNK_SEC * SR)
-                  
-                  if o_start_smp + len_smp <= len(final_audio):
-                      # Ghi đè narration vào vùng tương ứng của original
-                      final_audio[o_start_smp : o_start_smp + len_smp] = nar_raw[n_start_smp : n_start_smp + len_smp]
-                      last_o_idx = best_o_idx
-                      anchors_found += 1
-                      if anchors_found % 20 == 0:
-                          log(f"Matched {anchors_found} anchors... current pos: {o_start_smp/SR:.2f}s")
+              # Chỉ chấp nhận nếu thời gian trôi về phía trước (Chống lặp)
+              if current_o_idx >= last_o_idx:
+                  anchors.append((i / ENV_SR, current_o_idx / ENV_SR))
+                  last_o_idx = current_o_idx
 
-          log(f"Total anchors matched: {anchors_found}")
+          log(f"Tìm thấy {len(anchors)} điểm neo hợp lệ.")
+
+          # 4. TỔNG HỢP AUDIO (CONSTRUCTION)
+          log("Đang xây dựng luồng Audio cuối cùng...")
+          final_audio = y_o.copy()
+          
+          matched_count = 0
+          for n_time, o_time in anchors:
+              n_idx = int(n_time * SR)
+              o_idx = int(o_time * SR)
+              length = int(STEP_SEC * SR)
+              
+              if o_idx + length <= len(y_o) and n_idx + length <= len(y_n):
+                  # Thay thế âm thanh gốc bằng thuyết minh tại các điểm khớp
+                  final_audio[o_idx : o_idx + length] = y_n[n_idx : n_idx + length]
+                  matched_count += 1
+
+          # Tính độ bao phủ thành công
+          coverage = (matched_count * STEP_SEC) / dur_n * 100
+          log(f"Kết quả xử lý: Khớp thành công {coverage:.1f}% thời lượng thuyết minh.")
+          if coverage < 50:
+              log("CẢNH BÁO: Độ khớp thấp, có thể hai video có nội dung quá khác biệt.")
+
           sf.write("final_audio.wav", final_audio, SR)
-          log("Final audio built successfully")
+          log("Hoàn tất ghi file final_audio.wav")
           EOF
 
       - name: Mux final video
