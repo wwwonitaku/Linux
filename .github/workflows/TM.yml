@@ -51,7 +51,7 @@ jobs:
         run: |
           FILE="narration.mp4"
           java -jar tools/abyss-dl.jar \
-            "${{ github.event.inputs.link_audio_video }}" h -o "$FILE"
+            "${{ github.event.inputs.link_audio_video }}" l -o "$FILE"
 
       - name: Extract audio
         run: |
