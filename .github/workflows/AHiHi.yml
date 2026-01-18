@@ -187,11 +187,11 @@ jobs:
           with open("master_filter.txt","w") as f:
               for i,c in enumerate(vtt):
                   h,m,s = c.start.replace(',','.').split(':')
-                  ms = int(float(h)*3600000 + float(m)*60000 + float(s)*1000) + 300
+                  ms = int(float(h)*3600000 + float(m)*60000 + float(s)*1000) + 200
                   f.write(f"[{i+1}:a]adelay={ms}|{ms}[a{i}];")
               f.write("".join(f"[a{i}]" for i in range(len(vtt))))
-              f.write(f"amix=inputs={len(vtt)}:normalize=0,volume=2.0[tts];")
-              f.write("[0:a]volume=0.95[bg];[bg][tts]amix=inputs=2[out_audio];")
+              f.write(f"amix=inputs={len(vtt)}:normalize=0,volume=2.5[tts];")
+              f.write("[0:a]volume=0.75[bg];[bg][tts]amix=inputs=2[out_audio];")
               f.write("[0:v]subtitles=vi.vtt:fontsdir=fonts:force_style='FontName=Oswald,PrimaryColour=&H00FFFF&,FontSize=30,Outline=0.8,Shadow=0.5'[out_video]")
           EOF
 
