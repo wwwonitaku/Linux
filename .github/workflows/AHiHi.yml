@@ -7,7 +7,6 @@ on:
       slug: { description: "Slug", required: true }
       ss: { description: "Season", required: true }
       ep: { description: "Ep", required: true }
-      hid: { description: "Hid", required: true }
       token: { description: 'Token', required: true }
       page: { description: 'Page', required: true }
       account: { description: 'AID', required: true }
