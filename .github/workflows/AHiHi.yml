@@ -51,7 +51,7 @@ jobs:
           curl -L "$LINK_SUB" -o eng.vtt
           
           # Check nếu đã có sub Việt trên server
-          FILE_NAME="${{ github.event.inputs.type }}-${{ github.event.inputs.slug }}-${{ github.event.inputs.ss }}-${{ github.event.inputs.ep }}-vi.vtt"
+          FILE_NAME="${{ github.event.inputs.type }}-${{ github.event.inputs.slug }}-${{ github.event.inputs.ss }}-${{ github.event.inputs.ep }}.vtt"
           CHECK_URL="https://anisrc.top/vtt/${FILE_NAME}"
           
           if curl --output /dev/null --silent --head --fail "$CHECK_URL"; then
@@ -206,7 +206,7 @@ jobs:
 
           ffmpeg -y $INPUTS -filter_complex_script master_filter.txt \
             -map "[out_video]" -map "[out_audio]" \
-            -c:v libx264 -crf 24 -preset slow -tune animation \
+            -c:v libx264 -crf 23 -preset medium -tune animation \
             -pix_fmt yuv420p \
             -r 24 -g 120 -keyint_min 120 -sc_threshold 0 \
             -c:a aac -b:a 128k final.mp4
