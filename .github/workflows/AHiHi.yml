@@ -1,4 +1,4 @@
-name: AHiHi -> CF
+name: CF
 
 on:
   workflow_dispatch:
@@ -89,6 +89,8 @@ jobs:
               return text if len(text) <= max_len else text[:max_len] + "..."
 
           def normalize_for_tts(text):
+              # Chuyển toàn bộ văn bản thành chữ thường để tránh lỗi TTS khi gặp chữ viết hoa
+              text = text.lower()
               text = re.sub(r'\s+', ' ', text).strip()
               text = text.replace(",", ", ").replace(".", ". ").replace("?", "? ").replace("!", "! ")
               text = text.replace("…", " ... ").replace("—", " ... ")
