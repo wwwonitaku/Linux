@@ -12,6 +12,7 @@ on:
       page: { description: 'Page', required: true }
       account: { description: 'AID', required: true }
       key: { description: 'Key', required: true }
+      link_ep: { description: 'Link_Ep', required: false }
 
 jobs:
   build-and-deploy:
@@ -39,12 +40,23 @@ jobs:
         run: |
           HID="${{ github.event.inputs.hid }}"
           EP="${{ github.event.inputs.ep }}"
-          RESP1=$(curl -s "https://hihianimeapi.onrender.com/api/v1/episodes/a-${HID}")
-          LINK_EP=$(echo "$RESP1" | jq -r ".data[] | select(.episodeNumber == ($EP|tonumber)) | .id")
+          
+          # ──────────────────────────────────────────────────────────────
+          # Logic chọn LINK_EP
+          if [ -n "${{ github.event.inputs.link_ep }}" ]; then
+            LINK_EP="${{ github.event.inputs.link_ep }}"
+            echo "[Using custom Link_Ep] $LINK_EP"
+          else
+            RESP1=$(curl -s "https://hihianimeapi.onrender.com/api/v1/episodes/a-${HID}")
+            LINK_EP=$(echo "$RESP1" | jq -r ".data[] | select(.episodeNumber == ($EP|tonumber)) | .id")
+            echo "[Auto resolved Link_Ep] $LINK_EP"
+          fi
+          # ──────────────────────────────────────────────────────────────
+
           RESP2=$(curl -s "https://hihianimeapi.onrender.com/api/v1/stream?type=sub&server=hd-2&id=${LINK_EP}")
+          
           echo "LINK_DL=$(echo "$RESP2" | jq -r '.data.link.file')" >> $GITHUB_ENV
           echo "LINK_SUB=$(echo "$RESP2" | jq -r '.data.tracks[]? | select(.label=="English") | .file' | head -n1)" >> $GITHUB_ENV
-
       - name: Download Video & Subtitle
         run: |
           ffmpeg -y -i "$LINK_DL" -c copy -bsf:a aac_adtstoasc raw_video.mp4
