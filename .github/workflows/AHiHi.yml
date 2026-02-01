@@ -239,20 +239,18 @@ jobs:
           mkdir -p tmp output
 
           best=""
-          best_score=0
+          best_size=0
 
           for i in 1 2 3 4 5; do
             ffmpeg -y -i raw_video.mp4 -ss 00:0$i:00 \
-              -vframes 1 -vf "scale=-1:720,signalstats" \
-              tmp/t$i.jpg 2> tmp/log$i.txt
+              -vframes 1 -vf "scale=-1:720" \
+              tmp/t$i.jpg
 
-            score=$(grep -o "YENTROPY:[0-9.]*" tmp/log$i.txt | cut -d: -f2)
-            score=${score:-0}
+            size=$(stat -c%s tmp/t$i.jpg)
+            echo "minute $i size=$size"
 
-            echo "minute $i entropy=$score"
-
-            if (( $(echo "$score > $best_score" | bc -l) )); then
-              best_score=$score
+            if [ "$size" -gt "$best_size" ]; then
+              best_size=$size
               best="tmp/t$i.jpg"
             fi
           done
