@@ -244,7 +244,7 @@ jobs:
           best=""
           best_size=0
 
-          for i in 1 2 3 4 5; do
+          for i in 4 5 6 7 8; do
             ffmpeg -y -i raw_video.mp4 -ss 00:0$i:00 \
               -vframes 1 -vf "scale=-1:720" \
               tmp/t$i.jpg >/dev/null 2>&1 || continue
