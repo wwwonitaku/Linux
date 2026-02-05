@@ -269,7 +269,8 @@ jobs:
             echo "[THUMB] No thumbnail generated – skipped safely"
           fi
 
-      - name: Deploy to Cloudflare Pages
+            - name: Deploy to Cloudflare Pages (first)
+        id: deploy1
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ github.event.inputs.token }}
@@ -277,64 +278,59 @@ jobs:
           projectName: ${{ github.event.inputs.page }}
           directory: ./output
           branch: ${{ github.event.inputs.type }}-${{ github.event.inputs.slug }}-${{ github.event.inputs.ss }}-${{ github.event.inputs.ep }}
-      
-      - name: Verify Cloudflare deployment (real file check + retry)
+
+      - name: Verify Cloudflare deployment (branch domain check)
+        id: verify
+        continue-on-error: true
         env:
-          PAGE_DOMAIN: "91889f05.x04-anisrc-top.pages.dev"
-          BRANCH: "${{ github.event.inputs.type }}-${{ github.event.inputs.slug }}-${{ github.event.inputs.ss }}-${{ github.event.inputs.ep }}"
-          CF_API_TOKEN: ${{ github.event.inputs.token }}
-          CF_ACCOUNT_ID: ${{ github.event.inputs.account }}
-          CF_PROJECT: ${{ github.event.inputs.page }}
+          PROJECT: ${{ github.event.inputs.page }}
+          BRANCH: ${{ github.event.inputs.type }}-${{ github.event.inputs.slug }}-${{ github.event.inputs.ss }}-${{ github.event.inputs.ep }}
         run: |
           set -e
-      
-          FILE_URL="https://${PAGE_DOMAIN}/${BRANCH}.m3u8"
+
+          BASE_URL="https://${BRANCH}.${PROJECT}.pages.dev"
+          FILE_URL="${BASE_URL}/${BRANCH}.m3u8"
+
           echo "[TARGET] $FILE_URL"
-      
-          check_file () {
+
+          check () {
             code=$(curl -L -o /dev/null -s -w "%{http_code}" "$FILE_URL")
             echo "HTTP CODE: $code"
             [ "$code" = "200" ]
           }
-      
-          redeploy () {
-            echo "[REDEPLOY] Uploading again (only once)..."
-            npx wrangler pages publish ./output \
-              --project-name "$CF_PROJECT" \
-              --branch "$BRANCH" \
-              --account-id "$CF_ACCOUNT_ID" \
-              --api-token "$CF_API_TOKEN"
-          }
-      
-          echo "[WAIT] Waiting 60s for Pages to fully propagate..."
-          sleep 60
-      
+
+          echo "[WAIT] Waiting 5 minutes for Pages propagation..."
+          sleep 300
+
           echo "[CHECK #1]"
-          if check_file; then
-            echo "[SUCCESS] File exists after first deploy"
+          if check; then
+            echo "[SUCCESS] File exists"
             exit 0
           fi
-      
-          echo "[WAIT] File not found, waiting 90s before recheck..."
-          sleep 90
-      
+
+          echo "[WAIT] Still not found, wait extra 3 minutes..."
+          sleep 180
+
           echo "[CHECK #2]"
-          if check_file; then
+          if check; then
             echo "[SUCCESS] File exists after delay"
             exit 0
           fi
-      
-          echo "[FAIL] Still missing → redeploy once"
-          redeploy
-      
-          echo "[WAIT] Waiting 60s after redeploy..."
-          sleep 60
-      
-          echo "[CHECK #3 – FINAL]"
-          if check_file; then
-            echo "[SUCCESS] File exists after redeploy"
-            exit 0
-          fi
+
+          echo "[FAIL] File still missing → mark for redeploy"
+          echo "NEED_REDEPLOY=true" >> $GITHUB_ENV
+          exit 1
+
+      - name: Deploy to Cloudflare Pages (retry – reuse encoded files)
+        if: env.NEED_REDEPLOY == 'true'
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ github.event.inputs.token }}
+          accountId: ${{ github.event.inputs.account }}
+          projectName: ${{ github.event.inputs.page }}
+          directory: ./output
+          branch: ${{ github.event.inputs.type }}-${{ github.event.inputs.slug }}-${{ github.event.inputs.ss }}-${{ github.event.inputs.ep }}
+
       
           echo "[FATAL] Deployment failed even after redeploy"
           exit 1
