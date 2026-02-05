@@ -269,7 +269,7 @@ jobs:
             echo "[THUMB] No thumbnail generated – skipped safely"
           fi
 
-            - name: Deploy to Cloudflare Pages (first)
+      - name: Deploy to Cloudflare Pages (first)
         id: deploy1
         uses: cloudflare/pages-action@v1
         with:
@@ -330,8 +330,3 @@ jobs:
           projectName: ${{ github.event.inputs.page }}
           directory: ./output
           branch: ${{ github.event.inputs.type }}-${{ github.event.inputs.slug }}-${{ github.event.inputs.ss }}-${{ github.event.inputs.ep }}
-
-      
-          echo "[FATAL] Deployment failed even after redeploy"
-          exit 1
-   
