@@ -60,7 +60,7 @@ jobs:
       - name: Download Video & Subtitle
         run: |
           ffmpeg -y -i "$LINK_DL" -c copy -bsf:a aac_adtstoasc raw_video.mp4
-          curl -L "$LINK_SUB" -o eng.vtt
+          
           
           # Check nếu đã có sub Việt trên server
           FILE_NAME="${{ github.event.inputs.type }}-${{ github.event.inputs.slug }}-${{ github.event.inputs.ss }}-${{ github.event.inputs.ep }}.vtt"
