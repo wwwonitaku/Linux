@@ -1,0 +1,158 @@
+name: Encode HLS & Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Slug video"
+        required: true
+      link:
+        description: "Link"
+        required: true
+      token:
+        description: "Token"
+        required: true
+      page:
+        description: "Page"
+        required: true
+      account:
+        description: "Account"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # ─────────────────────────────
+      # 1. Setup environment
+      # ─────────────────────────────
+      - name: Setup Environment
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg curl unzip fontconfig
+          mkdir -p fonts output tmp
+
+      # ─────────────────────────────
+      # 2. Download video
+      # ─────────────────────────────
+      - name: Download video
+        run: |
+          curl -L "${{ github.event.inputs.link }}" -o raw_video.mp4
+
+      # ─────────────────────────────
+      # 3. Download subtitle
+      # ─────────────────────────────
+      - name: Download subtitle
+        run: |
+          curl -L "https://cp.ssplay.net/sub/${{ github.event.inputs.slug }}.ass" -o vi.ass
+
+      # ─────────────────────────────
+      # 4. Setup font
+      # ─────────────────────────────
+      - name: Setup fonts
+        run: |
+          curl -L https://github.com/wwwonitaku/Linux/raw/main/UVN.zip -o font.zip
+          unzip -o font.zip -d fonts
+          fc-cache -f
+
+      # ─────────────────────────────
+      # 5. Encode video (theo code của bạn)
+      # ─────────────────────────────
+      - name: Encode video
+        run: |
+          ffmpeg -y -i raw_video.mp4 \
+            -vf "ass=vi.ass:fontsdir=fonts" \
+            -c:v libx264 -crf 21 -preset medium -tune animation \
+            -pix_fmt yuv420p \
+            -r 24 -g 120 -keyint_min 120 -sc_threshold 0 \
+            -c:a aac -b:a 128k \
+            final.mp4
+
+      # ─────────────────────────────
+      # 6. Convert to HLS (fMP4)
+      # ─────────────────────────────
+      - name: Convert to HLS
+        run: |
+          NAME="${{ github.event.inputs.slug }}"
+          mkdir -p output
+
+          ffmpeg -i final.mp4 -c copy -f hls \
+            -hls_time 5 -hls_list_size 0 \
+            -start_number 10001 \
+            -hls_playlist_type vod \
+            -hls_segment_type fmp4 \
+            -hls_fmp4_init_filename "${NAME}-index.png" \
+            -hls_segment_filename "output/${NAME}-index%d.png" \
+            "output/${NAME}.m3u8"
+
+      # ─────────────────────────────
+      # 7. Auto pick best thumbnail
+      # ─────────────────────────────
+      - name: Auto pick best thumbnail (safe mode)
+        continue-on-error: true
+        run: |
+          set +e
+          NAME="${{ github.event.inputs.slug }}"
+
+          best=""
+          best_size=0
+
+          for i in 4 5 6 7 8; do
+            ffmpeg -y -i raw_video.mp4 -ss 00:0$i:00 \
+              -vframes 1 -vf "scale=-1:720" \
+              tmp/t$i.jpg >/dev/null 2>&1 || continue
+
+            [ ! -f tmp/t$i.jpg ] && continue
+
+            size=$(stat -c%s tmp/t$i.jpg 2>/dev/null || echo 0)
+            echo "minute $i size=$size"
+
+            if [ "$size" -gt "$best_size" ]; then
+              best_size=$size
+              best="tmp/t$i.jpg"
+            fi
+          done
+
+          if [ -n "$best" ]; then
+            cp "$best" "output/${NAME}-index.jpg"
+            echo "[THUMB] Selected $best"
+          else
+            echo "[THUMB] Skipped"
+          fi
+
+      # ─────────────────────────────
+      # 8. Deploy Cloudflare Pages
+      # ─────────────────────────────
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ github.event.inputs.token }}
+          accountId: ${{ github.event.inputs.account }}
+          projectName: ${{ github.event.inputs.page }}
+          directory: ./output
+          branch: ${{ github.event.inputs.slug }}
+
+      # ─────────────────────────────
+      # 9. Callback success
+      # ─────────────────────────────
+      - name: Callback success
+        if: success()
+        run: |
+          curl -G "https://cp.ssplay.net/cf.php" \
+            --data-urlencode "type=ok" \
+            --data-urlencode "key=${{ github.event.inputs.page }}" \
+            --data-urlencode "slug=${{ github.event.inputs.slug }}"
+
+      # ─────────────────────────────
+      # 10. Callback error
+      # ─────────────────────────────
+      - name: Callback error
+        if: failure()
+        run: |
+          curl -G "https://cp.ssplay.net/cf.php" \
+            --data-urlencode "type=error" \
+            --data-urlencode "slug=${{ github.event.inputs.slug }}"
