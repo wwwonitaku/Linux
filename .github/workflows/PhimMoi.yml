@@ -1,4 +1,4 @@
-name: Encode HLS & Deploy
+name: PhimMoi
 
 on:
   workflow_dispatch:
