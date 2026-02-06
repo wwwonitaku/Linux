@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       slug:
-        description: "Slug video"
+        description: "Slug"
         required: true
       link:
         description: "Link"
