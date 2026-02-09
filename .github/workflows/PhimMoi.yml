@@ -195,10 +195,10 @@ jobs:
             [ "$code" = "200" ]
           }
           echo "Waiting 5 minutes..."
-          sleep 300
+          sleep 120
           if check; then exit 0; fi
           echo "Wait extra 3 minutes..."
-          sleep 180
+          sleep 300
           if check; then exit 0; fi
           exit 1
 
