@@ -99,7 +99,7 @@ jobs:
             [ "$code" = "200" ]
           }
           echo "Waiting 2 minutes for RAW..."
-          sleep 120
+          sleep 60
           if check; then exit 0; fi
           echo "Wait extra 1 minute..."
           sleep 60
