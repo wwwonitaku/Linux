@@ -55,7 +55,7 @@ jobs:
       # ─────────────────────────────
       - name: Setup fonts
         run: |
-          curl -L https://github.com/wwwonitaku/Linux/raw/main/UVN.zip -o font.zip
+          curl -L https://github.com/wwwonitaku/Linux/raw/main/UTM.zip -o font.zip
           unzip -o font.zip -d fonts
           fc-cache -f
 
@@ -66,10 +66,10 @@ jobs:
         run: |
           ffmpeg -y -i raw_video.mp4 \
             -vf "ass=vi.ass:fontsdir=fonts" \
-            -c:v libx264 -crf 21 -preset medium \
+            -c:v libx264 -crf 24 -preset medium \
             -pix_fmt yuv420p \
-            -r 24 -g 120 -keyint_min 120 -sc_threshold 0 \
-            -c:a aac -b:a 128k \
+            -force_key_frames "expr:gte(t,n_forced*5)" -sc_threshold 0 \
+            -c:a aac -b:a 96k -threads 0 \
             final.mp4
 
       # ─────────────────────────────
