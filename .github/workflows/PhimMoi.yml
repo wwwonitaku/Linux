@@ -86,13 +86,12 @@ jobs:
 
       - name: Verify RAW deployment
         id: verify_raw
-        continue-on-error: true
         env:
           PROJECT: ${{ github.event.inputs.page }}
           BRANCH: ${{ github.event.inputs.slug }}-raw
         run: |
           BASE_URL="https://${BRANCH}.${PROJECT}.pages.dev"
-          FILE_URL="${BASE_URL}/${BRANCH}-raw.m3u8"
+          FILE_URL="${BASE_URL}/${BRANCH}.m3u8"
           check () {
             code=$(curl -L -o /dev/null -s -w "%{http_code}" "$FILE_URL")
             echo "RAW HTTP CODE: $code"
