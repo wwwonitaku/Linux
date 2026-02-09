@@ -128,6 +128,7 @@ jobs:
       # 8. Deploy Cloudflare Pages
       # ─────────────────────────────
       - name: Deploy to Cloudflare Pages
+        id: deploy1
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ github.event.inputs.token }}
@@ -136,7 +137,43 @@ jobs:
           directory: ./output
           branch: ${{ github.event.inputs.slug }}
 
-      # ─────────────────────────────
+      - name: Verify Cloudflare deployment
+        id: verify  # <--- Đặt ID ở đây
+        continue-on-error: true # Cho phép lỗi để chạy tiếp bước sau
+        env:
+          PROJECT: ${{ github.event.inputs.page }}
+          BRANCH: ${{ github.event.inputs.slug }}
+        run: |
+          set -e
+          BASE_URL="https://${BRANCH}.${PROJECT}.pages.dev"
+          FILE_URL="${BASE_URL}/${BRANCH}.m3u8"
+          
+          check () {
+            code=$(curl -L -o /dev/null -s -w "%{http_code}" "$FILE_URL")
+            echo "HTTP CODE: $code"
+            [ "$code" = "200" ]
+          }
+
+          echo "Waiting 5 minutes..."
+          sleep 300
+          if check; then exit 0; fi
+
+          echo "Wait extra 3 minutes..."
+          sleep 180
+          if check; then exit 0; fi
+
+          exit 1 # Nếu đến đây vẫn lỗi thì exit 1
+
+      - name: Deploy to Cloudflare Pages Retry
+        if: steps.verify.outcome == 'failure'
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ github.event.inputs.token }}
+          accountId: ${{ github.event.inputs.account }}
+          projectName: ${{ github.event.inputs.page }}
+          directory: ./output
+          branch: ${{ github.event.inputs.slug }}
+      
       # 9. Callback success
       # ─────────────────────────────
       - name: Callback success
