@@ -37,21 +37,18 @@ jobs:
           mkdir -p fonts output tmp
 
       # ─────────────────────────────
-      # 2. Download video
+      # 2. Download video & sub
       # ─────────────────────────────
       - name: Download video
         run: |
           curl -L "${{ github.event.inputs.link }}" -o raw_video.mp4
 
-      # ─────────────────────────────
-      # 3. Download subtitle
-      # ─────────────────────────────
       - name: Download subtitle
         run: |
           curl -L "https://cp.ssplay.net/sub/${{ github.event.inputs.slug }}.ass" -o vi.ass
 
       # ─────────────────────────────
-      # 4. Setup font
+      # 3. Setup font
       # ─────────────────────────────
       - name: Setup fonts
         run: |
@@ -60,9 +57,66 @@ jobs:
           fc-cache -f
 
       # ─────────────────────────────
-      # 5. Encode video (theo code của bạn)
+      # 4. Convert to HLS RAW (Giai đoạn 1)
       # ─────────────────────────────
-      - name: Encode video
+      - name: Convert RAW to HLS
+        run: |
+          NAME="${{ github.event.inputs.slug }}"
+          mkdir -p output_raw
+          ffmpeg -i raw_video.mp4 -c copy -f hls \
+            -hls_time 5 -hls_list_size 0 \
+            -start_number 10001 \
+            -hls_playlist_type vod \
+            -hls_segment_type fmp4 \
+            -hls_fmp4_init_filename "${NAME}-raw-index.png" \
+            -hls_segment_filename "output_raw/${NAME}-raw-index%d.png" \
+            "output_raw/${NAME}-raw.m3u8"
+
+      # ─────────────────────────────
+      # 5. Deploy RAW to Cloudflare
+      # ─────────────────────────────
+      - name: Deploy RAW to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ github.event.inputs.token }}
+          accountId: ${{ github.event.inputs.account }}
+          projectName: ${{ github.event.inputs.page }}
+          directory: ./output_raw
+          branch: ${{ github.event.inputs.slug }}-raw
+
+      - name: Verify RAW deployment
+        id: verify_raw
+        continue-on-error: true
+        env:
+          PROJECT: ${{ github.event.inputs.page }}
+          BRANCH: ${{ github.event.inputs.slug }}-raw
+        run: |
+          BASE_URL="https://${BRANCH}.${PROJECT}.pages.dev"
+          FILE_URL="${BASE_URL}/${BRANCH}-raw.m3u8"
+          check () {
+            code=$(curl -L -o /dev/null -s -w "%{http_code}" "$FILE_URL")
+            echo "RAW HTTP CODE: $code"
+            [ "$code" = "200" ]
+          }
+          echo "Waiting 2 minutes for RAW..."
+          sleep 120
+          if check; then exit 0; fi
+          echo "Wait extra 1 minute..."
+          sleep 60
+          if check; then exit 0; fi
+          exit 1
+
+      - name: Callback RAW
+        run: |
+          curl -G "https://cp.ssplay.net/cf.php" \
+            --data-urlencode "type=RAW" \
+            --data-urlencode "key=${{ github.event.inputs.page }}" \
+            --data-urlencode "slug=${{ github.event.inputs.slug }}"
+
+      # ─────────────────────────────
+      # 6. Encode video (Giai đoạn 2)
+      # ─────────────────────────────
+      - name: Encode video (Hardsub)
         run: |
           ffmpeg -y -i raw_video.mp4 \
             -vf "ass=vi.ass:fontsdir=fonts" \
@@ -73,13 +127,12 @@ jobs:
             final.mp4
 
       # ─────────────────────────────
-      # 6. Convert to HLS (fMP4)
+      # 7. Convert to HLS Final
       # ─────────────────────────────
-      - name: Convert to HLS
+      - name: Convert to HLS Final
         run: |
           NAME="${{ github.event.inputs.slug }}"
           mkdir -p output
-
           ffmpeg -i final.mp4 -c copy -f hls \
             -hls_time 5 -hls_list_size 0 \
             -start_number 10001 \
@@ -90,45 +143,35 @@ jobs:
             "output/${NAME}.m3u8"
 
       # ─────────────────────────────
-      # 7. Auto pick best thumbnail
+      # 8. Auto pick best thumbnail
       # ─────────────────────────────
-      - name: Auto pick best thumbnail (safe mode)
+      - name: Auto pick best thumbnail
         continue-on-error: true
         run: |
           set +e
           NAME="${{ github.event.inputs.slug }}"
-
           best=""
           best_size=0
-
           for i in 4 5 6 7 8; do
             ffmpeg -y -i raw_video.mp4 -ss 00:0$i:00 \
               -vframes 1 -vf "scale=-1:1080" \
               tmp/t$i.jpg >/dev/null 2>&1 || continue
-
             [ ! -f tmp/t$i.jpg ] && continue
-
             size=$(stat -c%s tmp/t$i.jpg 2>/dev/null || echo 0)
-            echo "minute $i size=$size"
-
             if [ "$size" -gt "$best_size" ]; then
               best_size=$size
               best="tmp/t$i.jpg"
             fi
           done
-
           if [ -n "$best" ]; then
             cp "$best" "output/${NAME}-index.jpg"
-            echo "[THUMB] Selected $best"
-          else
-            echo "[THUMB] Skipped"
           fi
 
       # ─────────────────────────────
-      # 8. Deploy Cloudflare Pages
+      # 9. Deploy Final to Cloudflare
       # ─────────────────────────────
-      - name: Deploy to Cloudflare Pages
-        id: deploy1
+      - name: Deploy Final to Cloudflare Pages
+        id: deploy_final
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ github.event.inputs.token }}
@@ -137,9 +180,9 @@ jobs:
           directory: ./output
           branch: ${{ github.event.inputs.slug }}
 
-      - name: Verify Cloudflare deployment
-        id: verify  # <--- Đặt ID ở đây
-        continue-on-error: true # Cho phép lỗi để chạy tiếp bước sau
+      - name: Verify Final deployment
+        id: verify
+        continue-on-error: true
         env:
           PROJECT: ${{ github.event.inputs.page }}
           BRANCH: ${{ github.event.inputs.slug }}
@@ -147,24 +190,20 @@ jobs:
           set -e
           BASE_URL="https://${BRANCH}.${PROJECT}.pages.dev"
           FILE_URL="${BASE_URL}/${BRANCH}.m3u8"
-          
           check () {
             code=$(curl -L -o /dev/null -s -w "%{http_code}" "$FILE_URL")
-            echo "HTTP CODE: $code"
+            echo "FINAL HTTP CODE: $code"
             [ "$code" = "200" ]
           }
-
           echo "Waiting 5 minutes..."
           sleep 300
           if check; then exit 0; fi
-
           echo "Wait extra 3 minutes..."
           sleep 180
           if check; then exit 0; fi
+          exit 1
 
-          exit 1 # Nếu đến đây vẫn lỗi thì exit 1
-
-      - name: Deploy to Cloudflare Pages Retry
+      - name: Deploy Final Retry
         if: steps.verify.outcome == 'failure'
         uses: cloudflare/pages-action@v1
         with:
@@ -174,7 +213,8 @@ jobs:
           directory: ./output
           branch: ${{ github.event.inputs.slug }}
       
-      # 9. Callback success
+      # ─────────────────────────────
+      # 10. Callbacks
       # ─────────────────────────────
       - name: Callback success
         if: success()
@@ -184,9 +224,6 @@ jobs:
             --data-urlencode "key=${{ github.event.inputs.page }}" \
             --data-urlencode "slug=${{ github.event.inputs.slug }}"
 
-      # ─────────────────────────────
-      # 10. Callback error
-      # ─────────────────────────────
       - name: Callback error
         if: failure()
         run: |
