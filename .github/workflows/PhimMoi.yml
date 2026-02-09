@@ -68,9 +68,9 @@ jobs:
             -start_number 10001 \
             -hls_playlist_type vod \
             -hls_segment_type fmp4 \
-            -hls_fmp4_init_filename "${NAME}-raw-index.png" \
-            -hls_segment_filename "output_raw/${NAME}-raw-index%d.png" \
-            "output_raw/${NAME}-raw.m3u8"
+            -hls_fmp4_init_filename "${NAME}z-index.png" \
+            -hls_segment_filename "output_raw/${NAME}z-index%d.png" \
+            "output_raw/${NAME}z.m3u8"
 
       # ─────────────────────────────
       # 5. Deploy RAW to Cloudflare
@@ -82,13 +82,13 @@ jobs:
           accountId: ${{ github.event.inputs.account }}
           projectName: ${{ github.event.inputs.page }}
           directory: ./output_raw
-          branch: ${{ github.event.inputs.slug }}-raw
+          branch: ${{ github.event.inputs.slug }}z
 
       - name: Verify RAW deployment
         id: verify_raw
         env:
           PROJECT: ${{ github.event.inputs.page }}
-          BRANCH: ${{ github.event.inputs.slug }}-raw
+          BRANCH: ${{ github.event.inputs.slug }}z
         run: |
           BASE_URL="https://${BRANCH}.${PROJECT}.pages.dev"
           FILE_URL="${BASE_URL}/${BRANCH}.m3u8"
