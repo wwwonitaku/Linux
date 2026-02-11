@@ -222,8 +222,8 @@ jobs:
             -map "[out_video]" -map "[out_audio]" \
             -c:v libx264 -crf 24 -preset medium -tune animation \
             -pix_fmt yuv420p \
-            -r 24 -g 120 -keyint_min 120 -sc_threshold 0 \
-            -c:a aac -b:a 128k final.mp4
+            -force_key_frames "expr:gte(t,n_forced*5)" -sc_threshold 0 \
+            -c:a aac -b:a 96k final.mp4
 
           mkdir -p output
           ffmpeg -i final.mp4 -c copy -f hls \
