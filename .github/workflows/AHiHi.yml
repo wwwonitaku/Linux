@@ -223,7 +223,7 @@ jobs:
             -c:v libx264 -crf 24 -preset medium -tune animation \
             -pix_fmt yuv420p \
             -force_key_frames "expr:gte(t,n_forced*5)" -sc_threshold 0 \
-            -c:a aac -b:a 96k final.mp4
+            -c:a aac -b:a 96k -threads 0 final.mp4
 
           mkdir -p output
           ffmpeg -i final.mp4 -c copy -f hls \
