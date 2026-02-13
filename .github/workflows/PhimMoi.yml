@@ -120,7 +120,7 @@ jobs:
           ffmpeg -y -i raw_video.mp4 \
             -vf "ass=vi.ass:fontsdir=fonts" \
             -c:v libx264 -crf 24 -preset medium \
-            -pix_fmt yuv420p \
+            -pix_fmt yuv420p -maxrate 2500k -bufsize 5000k -b:v 1800k\
             -force_key_frames "expr:gte(t,n_forced*5)" -sc_threshold 0 \
             -c:a aac -b:a 96k -threads 0 \
             final.mp4
