@@ -118,7 +118,7 @@ jobs:
       - name: Encode video (Hardsub)
         run: |
           ffmpeg -y -i raw_video.mp4 \
-            -vf "format=yuv420p,ass=vi.ass:fontsdir=fonts" \
+            -vf "scale='if(gt(iw,1920),1920,if(gt(ih,1080),-2,iw))':'if(gt(ih,1080),1080,if(gt(iw,1920),-2,ih))',format=yuv420p,ass=vi.ass:fontsdir=fonts" \
             -c:v libx264 -pix_fmt yuv420p -profile:v high -level 4.1 -crf 24 -preset medium \
             -maxrate 2500k -bufsize 3500k -b:v 1800k \
             -force_key_frames "expr:gte(t,n_forced*5)" -sc_threshold 0 \
