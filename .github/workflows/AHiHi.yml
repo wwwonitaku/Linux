@@ -220,8 +220,8 @@ jobs:
 
           ffmpeg -y $INPUTS -filter_complex_script master_filter.txt \
             -map "[out_video]" -map "[out_audio]" \
-            -c:v libx264 -crf 24 -preset medium -tune animation \
-            -pix_fmt yuv420p -maxrate 2500k -bufsize 5000k -b:v 1800k\
+            -c:v libx264 -crf 27 -preset medium -tune animation \
+            -pix_fmt yuv420p -maxrate 1800k -bufsize 3000k\
             -force_key_frames "expr:gte(t,n_forced*5)" -sc_threshold 0 \
             -c:a aac -b:a 96k -threads 0 final.mp4
 
