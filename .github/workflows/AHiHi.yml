@@ -300,7 +300,7 @@ jobs:
           }
 
           echo "[WAIT] Waiting 5 minutes for Pages propagation..."
-          sleep 300
+          sleep 60
 
           echo "[CHECK #1]"
           if check; then
