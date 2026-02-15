@@ -57,6 +57,62 @@ jobs:
           fc-cache -f
 
       # ─────────────────────────────
+      # 4. Convert to HLS RAW (Giai đoạn 1)
+      # ─────────────────────────────
+      - name: Convert RAW to HLS
+        run: |
+          NAME="${{ github.event.inputs.slug }}"
+          mkdir -p output_raw
+          ffmpeg -i raw_video.mp4 -map 0:v -map 0:a -c copy -f hls \
+            -hls_time 5 -hls_list_size 0 \
+            -start_number 10001 \
+            -hls_playlist_type vod \
+            -hls_segment_type fmp4 \
+            -hls_fmp4_init_filename "${NAME}z-index.png" \
+            -hls_segment_filename "output_raw/${NAME}z-index%d.png" \
+            "output_raw/${NAME}z.m3u8"
+
+      # ─────────────────────────────
+      # 5. Deploy RAW to Cloudflare
+      # ─────────────────────────────
+      - name: Deploy RAW to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ github.event.inputs.token }}
+          accountId: ${{ github.event.inputs.account }}
+          projectName: ${{ github.event.inputs.page }}
+          directory: ./output_raw
+          branch: ${{ github.event.inputs.slug }}z
+
+      - name: Verify RAW deployment
+        id: verify_raw
+        env:
+          PROJECT: ${{ github.event.inputs.page }}
+          BRANCH: ${{ github.event.inputs.slug }}z
+        run: |
+          BASE_URL="https://${BRANCH}.${PROJECT}.pages.dev"
+          FILE_URL="${BASE_URL}/${BRANCH}.m3u8"
+          check () {
+            code=$(curl -L -o /dev/null -s -w "%{http_code}" "$FILE_URL")
+            echo "RAW HTTP CODE: $code"
+            [ "$code" = "200" ]
+          }
+          echo "Waiting 2 minutes for RAW..."
+          sleep 60
+          if check; then exit 0; fi
+          echo "Wait extra 1 minute..."
+          sleep 300
+          if check; then exit 0; fi
+          exit 1
+
+      - name: Callback RAW
+        run: |
+          curl -G "https://cp.ssplay.net/cf.php" \
+            --data-urlencode "type=RAW" \
+            --data-urlencode "key=${{ github.event.inputs.page }}" \
+            --data-urlencode "slug=${{ github.event.inputs.slug }}"
+
+      # ─────────────────────────────
       # 6. Encode video (Giai đoạn 2)
       # ─────────────────────────────
       - name: Encode video (Hardsub)
