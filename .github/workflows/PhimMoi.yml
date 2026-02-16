@@ -111,14 +111,24 @@ jobs:
             --data-urlencode "type=RAW" \
             --data-urlencode "key=${{ github.event.inputs.page }}" \
             --data-urlencode "slug=${{ github.event.inputs.slug }}"
-
-      # ─────────────────────────────
-      # 6. Encode video (Giai đoạn 2)
-      # ─────────────────────────────
-      - name: Encode video (Hardsub nếu có sub)
+      
+      - name: Encode video (Safe hardsub)
         run: |
-          if [ -s "vi.ass" ]; then
-            echo "Subtitle found -> Encoding with hardsub"
+          USE_SUB=0
+
+          if [ -f "vi.ass" ] && [ -s "vi.ass" ]; then
+            if grep -q "\[Script Info\]" vi.ass; then
+              echo "Valid ASS subtitle detected"
+              USE_SUB=1
+            else
+              echo "Subtitle file is not valid ASS format"
+            fi
+          else
+            echo "Subtitle file missing or empty"
+          fi
+
+          if [ "$USE_SUB" -eq 1 ]; then
+            echo "Encoding with hardsub..."
             ffmpeg -y -i raw_video.mp4 \
               -vf "scale='if(gt(iw,1920),1920,if(gt(ih,1080),-2,iw))':'if(gt(ih,1080),1080,if(gt(iw,1920),-2,ih))',format=yuv420p,ass=vi.ass:fontsdir=fonts" \
               -c:v libx264 -pix_fmt yuv420p -profile:v high -level 4.1 -crf 24 -preset medium \
@@ -127,7 +137,7 @@ jobs:
               -vsync cfr -c:a aac -b:a 96k -ac 2 -threads 0 -movflags +faststart \
               final.mp4
           else
-            echo "No subtitle found -> Encoding without sub"
+            echo "Encoding without subtitle..."
             ffmpeg -y -i raw_video.mp4 \
               -vf "scale='if(gt(iw,1920),1920,if(gt(ih,1080),-2,iw))':'if(gt(ih,1080),1080,if(gt(iw,1920),-2,ih))',format=yuv420p" \
               -c:v libx264 -pix_fmt yuv420p -profile:v high -level 4.1 -crf 24 -preset medium \
