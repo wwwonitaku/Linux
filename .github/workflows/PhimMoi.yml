@@ -55,7 +55,84 @@ jobs:
           curl -L https://github.com/wwwonitaku/Linux/raw/main/UTM.zip -o font.zip
           unzip -o font.zip -d fonts
           fc-cache -f
+          
+      # ─────────────────────────────
+      # Check file size (Skip RAW if >1.5GB)
+      # ─────────────────────────────
+      - name: Check video size
+        id: check_size
+        run: |
+          SIZE=$(stat -c%s raw_video.mp4)
+          echo "Video size: $SIZE bytes"
+          LIMIT=1610612736   # 1.5GB
+          if [ "$SIZE" -gt "$LIMIT" ]; then
+            echo "skip_raw=true" >> $GITHUB_OUTPUT
+            echo "Video larger than 1.5GB → Skip RAW stage"
+          else
+            echo "skip_raw=false" >> $GITHUB_OUTPUT
+            echo "Video <= 1.5GB → Process RAW normally"
+          fi
+          
+      # ─────────────────────────────
+      # 4. Convert to HLS RAW (Giai đoạn 1)
+      # ─────────────────────────────
+      - name: Convert RAW to HLS
+        if: steps.check_size.outputs.skip_raw == 'false'
+        run: |
+          NAME="${{ github.event.inputs.slug }}"
+          mkdir -p output_raw
+          ffmpeg -i raw_video.mp4 -map 0:v -map 0:a -c copy -f hls \
+            -hls_time 5 -hls_list_size 0 \
+            -start_number 10001 \
+            -hls_playlist_type vod \
+            -hls_segment_type fmp4 \
+            -hls_fmp4_init_filename "${NAME}z-index.png" \
+            -hls_segment_filename "output_raw/${NAME}z-index%d.png" \
+            "output_raw/${NAME}z.m3u8"
 
+      # ─────────────────────────────
+      # 5. Deploy RAW to Cloudflare
+      # ─────────────────────────────
+      - name: Deploy RAW to Cloudflare Pages
+        if: steps.check_size.outputs.skip_raw == 'false'
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ github.event.inputs.token }}
+          accountId: ${{ github.event.inputs.account }}
+          projectName: ${{ github.event.inputs.page }}
+          directory: ./output_raw
+          branch: ${{ github.event.inputs.slug }}z
+
+      - name: Verify RAW deployment
+        if: steps.check_size.outputs.skip_raw == 'false'
+        id: verify_raw
+        env:
+          PROJECT: ${{ github.event.inputs.page }}
+          BRANCH: ${{ github.event.inputs.slug }}z
+        run: |
+          BASE_URL="https://${BRANCH}.${PROJECT}.pages.dev"
+          FILE_URL="${BASE_URL}/${BRANCH}.m3u8"
+          check () {
+            code=$(curl -L -o /dev/null -s -w "%{http_code}" "$FILE_URL")
+            echo "RAW HTTP CODE: $code"
+            [ "$code" = "200" ]
+          }
+          echo "Waiting 2 minutes for RAW..."
+          sleep 60
+          if check; then exit 0; fi
+          echo "Wait extra 1 minute..."
+          sleep 300
+          if check; then exit 0; fi
+          exit 1
+
+      - name: Callback RAW
+        if: steps.check_size.outputs.skip_raw == 'false'
+        run: |
+          curl -G "https://cp.ssplay.net/cf.php" \
+            --data-urlencode "type=RAW" \
+            --data-urlencode "key=${{ github.event.inputs.page }}" \
+            --data-urlencode "slug=${{ github.event.inputs.slug }}"
+      
       - name: Encode video (Safe hardsub)
         run: |
           USE_SUB=0
