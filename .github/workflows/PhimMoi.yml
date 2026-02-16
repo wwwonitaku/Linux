@@ -64,7 +64,7 @@ jobs:
         run: |
           SIZE=$(stat -c%s raw_video.mp4)
           echo "Video size: $SIZE bytes"
-          LIMIT=1610612736   # 1.5GB
+          LIMIT=510612736   # 1.5GB
           if [ "$SIZE" -gt "$LIMIT" ]; then
             echo "skip_raw=true" >> $GITHUB_OUTPUT
             echo "Video larger than 1.5GB → Skip RAW stage"
