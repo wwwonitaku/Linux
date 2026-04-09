@@ -32,13 +32,19 @@ jobs:
         echo "Contents of /tmp/VideOCR:"
         ls -al /tmp/VideOCR
 
+    - name: Download video file
+      run: |
+        # Tải video về từ URL và lưu vào thư mục tạm thời
+        wget https://vicdn.cc/tt/VTTD-VS-419.mp4 -O /tmp/video.mp4
+        echo "Video downloaded to /tmp/video.mp4"
+
     - name: Run VideOCR on the video and output results to log
       run: |
         # Kiểm tra lại đường dẫn và in danh sách các tệp trong thư mục con
         echo "Checking contents of /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux"
         ls /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux
         # Chạy tệp videocr-cli.bin và in kết quả OCR vào log
-        /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux/videocr-cli.bin --video https://vicdn.cc/tt/VTTD-VS-419.mp4 --output - | while IFS= read -r line; do
+        /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux/videocr-cli.bin --video_path /tmp/video.mp4 --output - | while IFS= read -r line; do
           echo "$line"
         done
 
