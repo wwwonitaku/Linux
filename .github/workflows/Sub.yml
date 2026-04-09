@@ -1,180 +1,53 @@
-name: Video to M3U8 (Hard Sub Oswald) and Deploy
+name: Run VideOCR
 
 on:
-  workflow_dispatch:
-    inputs:
-      m3u8link:
-        description: 'Link M3U8'
-        required: true
-      sublink:
-        description: 'Link subtitle (.srt/.vtt)'
-        required: true
-      name:
-        description: 'Tên file để lưu và deploy'
-        required: true
-      token:
-        description: 'Token'
-        required: true
-      projectName:
-        description: 'projectName'
-        required: true
-      accountId:
-        description: 'AccountID'
-        required: true
-      introStart:
-        description: 'introStart'
-        required: true
-      introEnd:
-        description: 'introEnd'
-        required: true
-      outroStart:
-        description: 'outroStart'
-        required: true
-      outroEnd:
-        description: 'outroEnd'
-        required: true
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch: # Cho phép chạy thủ công từ GitHub UI
 
 jobs:
-  build-and-deploy:
+  videocr-job:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Setup FFmpeg
-        run: |
-          sudo apt update
-          sudo apt install -y ffmpeg curl git jq unzip
+    - name: Set up Python environment
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.8'
 
-      - name: Install Oswald font
-        run: |
-          mkdir -p $HOME/.local/share/fonts
-          curl -L "https://github.com/wwwonitaku/Linux/raw/main/Oswald.zip" -o Oswald.zip
-          unzip -o Oswald.zip -d $HOME/.local/share/fonts
-          fc-cache -f -v
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      - name: Download video from M3U8
-        run: |
-          ffmpeg -i "${{ github.event.inputs.m3u8link }}" -c copy -bsf:a aac_adtstoasc "${{ github.event.inputs.name }}-source.mp4"
+    - name: Check for AVX support
+      run: |
+        if grep -q avx /proc/cpuinfo; then
+          echo "AVX is supported!"
+        else
+          echo "AVX is NOT supported."
+        fi
 
-      - name: Verify video file
-        run: |
-          FILE="${{ github.event.inputs.name }}-source.mp4"
-          SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo 0)
-          if [ $SIZE -lt 1000000 ]; then
-            ffmpeg -y -i "${{ github.event.inputs.m3u8link }}" -c copy "$FILE"
-          fi
-          ffprobe -v error -show_entries format=duration -of csv=p=0 "$FILE"
+    - name: Download video
+      run: |
+        wget https://vicdn.cc/tt/VTTD-VS-419.mp4 -O /tmp/video.mp4
 
-      - name: Download subtitle
-        run: |
-          curl -L "${{ github.event.inputs.sublink }}" -o "${{ github.event.inputs.name }}.subraw"
+    - name: Run VideOCR on the video
+      run: |
+        # Chạy VideOCR và in kết quả trực tiếp lên log
+        python tools/infer.py --video /tmp/video.mp4 | tee /tmp/ocr_output.log | while IFS= read -r line; do
+          echo "$line"
+        done
+        # Lưu log tạm thời nếu cần (bước này có thể bỏ qua)
+        # cat /tmp/ocr_output.log
 
-      - name: Normalize subtitle
-        run: |
-          RAW="${{ github.event.inputs.name }}.subraw"
-          OUT="${{ github.event.inputs.name }}.srt"
-          ffmpeg -y -i "$RAW" "$OUT" || mv "$RAW" "$OUT"
-
-      - name: Render full hard-sub video (auto 3s keyframe)
-        run: |
-          SRC="${{ github.event.inputs.name }}-source.mp4"
-          SUB="${{ github.event.inputs.name }}.srt"
-          OUT="${{ github.event.inputs.name }}-sub.mp4"
-
-          # Lấy fps gốc (có thể là dạng 24000/1001, 25/1, 30, ...)
-          FPS_RAW=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
-            -of default=noprint_wrappers=1:nokey=1 "$SRC")
-
-          # Chuyển sang số nguyên gần đúng để tính GOP (không cần cài bc)
-          # Ví dụ: 24000/1001 -> 24; 30000/1001 -> 30; 29.97 -> 30; 25 -> 25
-          FPS_INT=$(echo "$FPS_RAW" | awk -F/ '{if (NF==2) printf "%.0f", $1/$2; else printf "%.0f", $1}')
-          [ -z "$FPS_INT" ] && FPS_INT=24  # fallback an toàn
-
-          GOP=$((FPS_INT * 10))
-          echo "Detected r_frame_rate=$FPS_RAW -> fps≈$FPS_INT, GOP=$GOP"
-
-          ffmpeg -y -i "$SRC" \
-            -vf "subtitles=${SUB}:force_style='Fontname=Oswald,FontSize=35,LineSpacing=-40,PrimaryColour=&H0035CDE1,OutlineColour=&H00000000,BorderStyle=1,Outline=0.4,Blur=0,Shadow=0.6,Alignment=2'" \
-            -r $FPS_INT \
-            -c:v libx264 -preset medium -b:v 1000k \
-            -g $GOP -keyint_min $GOP -sc_threshold 0 \
-            -c:a aac -b:a 128k -movflags +faststart \
-            "$OUT"
-
-      - name: Cut intro/outro and merge (smart conditions)
-        run: |
-          set -e
-          IN="${{ github.event.inputs.name }}-sub.mp4"
-
-          INTRO_START=${{ github.event.inputs.introStart }}
-          INTRO_END=${{ github.event.inputs.introEnd }}
-          OUTRO_START=${{ github.event.inputs.outroStart }}
-          OUTRO_END=${{ github.event.inputs.outroEnd }}
-
-          # Nếu cả 4 đều = 0 → bỏ qua cắt
-          if [ "$INTRO_START" -eq 0 ] && [ "$INTRO_END" -eq 0 ] && [ "$OUTRO_START" -eq 0 ] && [ "$OUTRO_END" -eq 0 ]; then
-            cp "$IN" "${{ github.event.inputs.name }}-final.mp4"
-            exit 0
-          fi
-
-          # Lấy duration video
-          DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$IN")
-          DURATION_INT=${DURATION%.*}
-
-          mkdir -p cut
-          rm -f cut/list.txt
-
-          # PART 1 — nếu introStart > 0
-          if [ "$INTRO_START" -gt 0 ]; then
-            ffmpeg -y  -ss 0 -i "$IN" -to $INTRO_START -c copy cut/part1.mp4
-            echo "file 'part1.mp4'" >> cut/list.txt
-          fi
-
-          # PART 2 — luôn có
-          ffmpeg -y -ss $INTRO_END -i "$IN" -to $OUTRO_START -c copy cut/part2.mp4
-          echo "file 'part2.mp4'" >> cut/list.txt
-
-          # PART 3 — nếu outroEnd < duration
-          if [ "$OUTRO_END" -lt "$DURATION_INT" ]; then
-            ffmpeg -y -ss $OUTRO_END -i "$IN" -c copy cut/part3.mp4
-            echo "file 'part3.mp4'" >> cut/list.txt
-          fi
-
-          # GHÉP LẠI
-          ffmpeg -y -f concat -safe 0 -i cut/list.txt -c copy "${{ github.event.inputs.name }}-final.mp4"
-
-      - name: Convert to HLS
-        run: |
-          IN="${{ github.event.inputs.name }}-final.mp4"
-          mkdir -p output
-          ffmpeg -y -i "$IN" \
-            -c:v copy -bsf:v h264_mp4toannexb -c:a copy \
-            -hls_time 8 -hls_list_size 0 -start_number 10001 \
-            -hls_segment_filename "output/${{ github.event.inputs.name }}-index%05d.png" \
-            -f hls "output/${{ github.event.inputs.name }}.m3u8"
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
-        with:
-          apiToken: ${{ github.event.inputs.token }}
-          accountId: ${{ github.event.inputs.accountId }}
-          projectName: ${{ github.event.inputs.projectName }}
-          directory: ./output
-          branch: ${{ github.event.inputs.name }}
-
-      - name: Callback success
-        if: success()
-        run: |
-          curl -G "https://cp.ssplay.net/cf.php" \
-            --data-urlencode "type=ok" \
-            --data-urlencode "key=${{ github.event.inputs.projectName }}" \
-            --data-urlencode "slug=${{ github.event.inputs.name }}"
-
-      - name: Callback error
-        if: failure()
-        run: |
-          curl -G "https://cp.ssplay.net/cf.php" \
-            --data-urlencode "type=error" \
-            --data-urlencode "slug=${{ github.event.inputs.name }}"
+    - name: Display OCR output
+      run: |
+        echo "Completed OCR processing. Check the logs above for details."
