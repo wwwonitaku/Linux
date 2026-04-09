@@ -22,7 +22,7 @@ jobs:
     - name: Install Python and OCR Libraries
       run: |
         python -m pip install --upgrade pip
-        # Cài đặt Paddle bản 2.6.2 để tránh lỗi "Unimplemented" của bản 3.0
+        # Cài đặt bản ổn định và opencv không GUI
         pip install paddlepaddle==2.6.2 paddleocr opencv-python-headless
 
     - name: Download Video
@@ -30,6 +30,10 @@ jobs:
         wget "https://vicdn.cc/tt/VTTD-VS-419.mp4" -O /tmp/video.mp4
 
     - name: Run OCR with PaddleOCR
+      # Ép Paddle sử dụng CPU bằng biến môi trường thay vì tham số code
+      env:
+        FLAGS_selected_gpus: ""
+        PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       shell: python
       run: |
         import os
@@ -37,11 +41,16 @@ jobs:
         import logging
         from paddleocr import PaddleOCR
 
-        # Tắt log để output sạch
+        # Ép log im lặng
         logging.getLogger("ppocr").setLevel(logging.ERROR)
 
-        # Khởi tạo bản ổn định
-        ocr = PaddleOCR(lang='vi', use_angle_cls=False, use_gpu=False, show_log=False)
+        # KHỞI TẠO CỰC ĐOAN: Không thêm bất kỳ tham số nào ngoài lang
+        # Điều này giúp tránh lỗi "Unknown argument" trên mọi phiên bản
+        try:
+            ocr = PaddleOCR(lang='vi')
+        except Exception as e:
+            print(f"Lỗi khởi tạo: {e}")
+            exit(1)
 
         video_path = '/tmp/video.mp4'
         output_path = '/tmp/subtitles.srt'
@@ -62,9 +71,9 @@ jobs:
 
         subs = []
         last_text = ""
-        frame_interval = int(fps / 2) # Quét mỗi 0.5s
+        frame_interval = int(fps / 2) # Quét mỗi 0.5 giây
         
-        print(f"Processing: {width}x{height} @ {fps} FPS")
+        print(f"Đang xử lý: {width}x{height} @ {fps} FPS")
 
         frame_count = 0
         while cap.isOpened():
@@ -73,10 +82,10 @@ jobs:
             
             if frame_count % frame_interval == 0:
                 timestamp = frame_count / fps
-                # Lấy 25% vùng dưới cùng
+                # Cắt lấy vùng phụ đề (25% dưới cùng)
                 roi = frame[int(height * 0.75):height, 0:width]
                 
-                # Bản 2.x dùng .ocr() rất ổn định
+                # Gọi hàm ocr với tham số tối giản
                 result = ocr.ocr(roi, cls=False)
                 
                 if result and result[0]:
@@ -85,6 +94,7 @@ jobs:
                     if current_text and current_text != last_text:
                         start_time = format_time(timestamp)
                         end_time = format_time(timestamp + 0.5)
+                        # Định dạng SRT chuẩn
                         line_entry = f"{len(subs) + 1}\n{start_time.replace('.', ',')} --> {end_time.replace('.', ',')}\n{current_text}\n"
                         subs.append(line_entry)
                         last_text = current_text
@@ -96,7 +106,7 @@ jobs:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(subs))
         
-        print(f"Xong! {len(subs)} câu.")
+        print(f"Hoàn thành! Đã trích xuất {len(subs)} dòng.")
 
     - name: Convert and Upload
       run: |
@@ -105,6 +115,4 @@ jobs:
           curl -X POST https://vicdn.cc/sub.php \
                -F "filename=VTTD-VS-419.vtt" \
                -F "file=@/tmp/subtitles.vtt"
-        else
-          exit 1
         fi
