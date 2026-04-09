@@ -1,13 +1,5 @@
 name: Run VideOCR from Release and Output to Log
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-  workflow_dispatch: # Cho phép chạy thủ công từ GitHub UI
 
 jobs:
   videocr-job:
