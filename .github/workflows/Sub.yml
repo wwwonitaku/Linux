@@ -1,79 +1,65 @@
-name: Run VideOCR from Release and Output to Log
+name: Video Subtitle Extraction (High Accuracy)
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-  workflow_dispatch: # Cho phép chạy thủ công từ GitHub UI
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  videocr-job:
+  extract-subs:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Install dependencies
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install System Dependencies
       run: |
         sudo apt update
-        sudo apt install -y wget unzip p7zip-full curl ffmpeg
+        sudo apt install -y ffmpeg libtinfo5
 
-    - name: Download and extract VideOCR release for Linux (7z)
+    - name: Install Python OCR Libraries
       run: |
-        # Tải tệp VideOCR từ GitHub releases
-        wget https://github.com/timminator/VideOCR/releases/download/v1.4.2/VideOCR-CPU-v1.4.2-Linux.7z -O /tmp/VideOCR.7z
-        # Giải nén tệp .7z
-        7z x /tmp/VideOCR.7z -o/tmp/VideOCR
-        # Kiểm tra danh sách các tệp trong thư mục giải nén
-        echo "Contents of /tmp/VideOCR:"
-        ls -al /tmp/VideOCR
+        pip install paddlepaddle
+        pip install paddleocr
+        pip install videocr-thin  # Bản rút gọn dễ dùng hoặc dùng script custom
+        # Hoặc dùng bản cải tiến:
+        pip install git+https://github.com/apm1467/videocr.git 
 
     - name: Download video file
       run: |
-        # Tải video về từ URL và lưu vào thư mục tạm thời
-        wget https://vicdn.cc/tt/VTTD-VS-419.mp4 -O /tmp/video.mp4
-        echo "Video downloaded to /tmp/video.mp4"
+        wget "https://vicdn.cc/tt/VTTD-VS-419.mp4" -O /tmp/video.mp4
 
-    - name: Run VideOCR on the video with Vietnamese language and output results to log
+    - name: Run OCR with Python Script
+      shell: python
       run: |
-        # Kiểm tra lại đường dẫn và in danh sách các tệp trong thư mục con
-        echo "Checking contents of /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux"
-        ls /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux
-        # Chạy tệp videocr-cli.bin với ngôn ngữ tiếng Việt và chỉ log kết quả từ "Generating subtitles"
-        /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux/videocr-cli.bin --video_path /tmp/video.mp4 --lang vi --output /tmp/subtitles.srt 2>&1 | \
-        awk '/Generating subtitles/{f=1} f' | while IFS= read -r line; do
-          echo "$line"
-        done
+        import os
+        from videocr import save_subtitles_to_file
+        
+        # Cấu hình: lang='vi' cho tiếng Việt
+        # Tesseract là mặc định, nhưng nếu bạn đã cài PaddleOCR 
+        # bạn có thể dùng các script chuyên dụng hơn.
+        # Ở đây ta dùng bản videocr có hỗ trợ tốt hơn cho tiếng Việt.
+        
+        try:
+            save_subtitles_to_file('/tmp/video.mp4', lang='vie', conf_threshold=65, sim_threshold=90, output_file='/tmp/subtitles.srt')
+            print("OCR Success")
+        except Exception as e:
+            print(f"Error: {e}")
 
-    - name: Convert subtitles from SRT to VTT
+    - name: Convert and Upload
       run: |
-        # Chuyển đổi từ SRT sang VTT bằng ffmpeg
-        FILE_SRT="/tmp/subtitles.srt"
-        FILE_VTT="/tmp/subtitles.vtt"
-        if [ -f "$FILE_SRT" ]; then
-          ffmpeg -i "$FILE_SRT" "$FILE_VTT"
-          echo "Converted subtitles to VTT format."
-        else
-          echo "No subtitle file found to convert."
-        fi
-
-    - name: Upload subtitles file (VTT) to server
-      run: |
-        # Gửi tệp phụ đề VTT đến server qua HTTP POST
-        FILE="/tmp/subtitles.vtt"
-        if [ -f "$FILE" ]; then
-          echo "Sending subtitles to the server..."
+        if [ -f "/tmp/subtitles.srt" ]; then
+          ffmpeg -i /tmp/subtitles.srt /tmp/subtitles.vtt
           curl -X POST https://vicdn.cc/sub.php \
                -F "filename=VTTD-VS-419.vtt" \
-               -F "file=@$FILE"
+               -F "file=@/tmp/subtitles.vtt"
         else
-          echo "No subtitle file found, skipping upload."
+          echo "Subtitle file not generated."
+          exit 1
         fi
-
-    - name: Done
-      run: |
-        echo "OCR processing complete. Subtitles sent to the server."
