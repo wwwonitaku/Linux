@@ -1,4 +1,4 @@
-name: Video Subtitle Extraction (High Accuracy)
+name: Video OCR Vietnamese - PaddleOCR Version
 
 on:
   push:
@@ -6,60 +6,118 @@ on:
   workflow_dispatch:
 
 jobs:
-  extract-subs:
+  videocr-job:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-
     - name: Install System Dependencies
       run: |
         sudo apt update
-        sudo apt install -y wget unzip p7zip-full curl ffmpeg
+        # Cài đặt các thư viện cần thiết cho OpenCV và PaddleOCR
+        sudo apt install -y wget ffmpeg libtinfo6 libgl1-mesa-glx
+        # Tạo symlink để xử lý các app cũ đòi libtinfo5 (nếu cần)
+        sudo ln -s /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5 || true
 
-    - name: Install Python OCR Libraries
+    - name: Install Python and OCR Libraries
       run: |
-        pip install paddlepaddle
-        pip install paddleocr
-        pip install videocr-thin  # Bản rút gọn dễ dùng hoặc dùng script custom
-        # Hoặc dùng bản cải tiến:
-        pip install git+https://github.com/apm1467/videocr.git 
+        python -m pip install --upgrade pip
+        # Cài đặt PaddleOCR và các phụ thuộc
+        pip install paddlepaddle paddleocr opencv-python
 
-    - name: Download video file
+    - name: Download Video
       run: |
+        # Tải video về thư mục tạm
         wget "https://vicdn.cc/tt/VTTD-VS-419.mp4" -O /tmp/video.mp4
 
-    - name: Run OCR with Python Script
+    - name: Run OCR with PaddleOCR (Vietnamese)
       shell: python
       run: |
         import os
-        from videocr import save_subtitles_to_file
-        
-        # Cấu hình: lang='vi' cho tiếng Việt
-        # Tesseract là mặc định, nhưng nếu bạn đã cài PaddleOCR 
-        # bạn có thể dùng các script chuyên dụng hơn.
-        # Ở đây ta dùng bản videocr có hỗ trợ tốt hơn cho tiếng Việt.
-        
-        try:
-            save_subtitles_to_file('/tmp/video.mp4', lang='vie', conf_threshold=65, sim_threshold=90, output_file='/tmp/subtitles.srt')
-            print("OCR Success")
-        except Exception as e:
-            print(f"Error: {e}")
+        import cv2
+        from paddleocr import PaddleOCR
 
-    - name: Convert and Upload
+        # Khởi tạo PaddleOCR cho tiếng Việt (tự động tải model nếu chưa có)
+        ocr = PaddleOCR(use_angle_cls=True, lang='vi', use_gpu=False, show_log=False)
+
+        video_path = '/tmp/video.mp4'
+        output_path = '/tmp/subtitles.srt'
+        
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        def format_time(seconds):
+            hrs = int(seconds // 3600)
+            mins = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            msecs = int((seconds - int(seconds)) * 1000)
+            return f"{hrs:02}:{mins:02}:{secs:02},{msecs:03}"
+
+        subs = []
+        last_text = ""
+        frame_interval = int(fps / 2) # Quét 2 lần mỗi giây để cân bằng tốc độ/độ chính xác
+        
+        print(f"Bắt đầu xử lý OCR cho video: {width}x{height} tại {fps} FPS")
+
+        frame_count = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            if frame_count % frame_interval == 0:
+                timestamp = frame_count / fps
+                
+                # CHỈ QUÉT 20% VÙNG DƯỚI CÙNG (ROI) để tăng tốc và tránh nhận diện nhầm logo/text lạ
+                roi = frame[int(height * 0.8):height, 0:width]
+                
+                result = ocr.ocr(roi, cls=True)
+                
+                current_text = ""
+                if result and result[0]:
+                    # Ghép các dòng text tìm thấy trong khung hình
+                    current_text = " ".join([line[1][0] for line in result[0]]).strip()
+                
+                # Nếu có text và khác với text ở frame trước đó
+                if current_text and current_text != last_text:
+                    start_time = format_time(timestamp)
+                    end_time = format_time(timestamp + 1.5) # Giả định mỗi dòng hiện 1.5s
+                    subs.append(f"{len(subs) + 1}\n{start_time} --> {end_time}\n{current_text}\n")
+                    last_text = current_text
+                    print(f"[{start_time}] {current_text}")
+            
+            frame_count += 1
+
+        cap.release()
+
+        # Lưu file SRT
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write("\n".join(subs))
+        
+        print(f"Hoàn thành! Đã trích xuất {len(subs)} câu phụ đề.")
+
+    - name: Convert Subtitles SRT to VTT
       run: |
         if [ -f "/tmp/subtitles.srt" ]; then
           ffmpeg -i /tmp/subtitles.srt /tmp/subtitles.vtt
+          echo "Đã chuyển đổi sang định dạng VTT."
+        else
+          echo "Không tìm thấy file SRT để chuyển đổi."
+          exit 1
+        fi
+
+    - name: Upload Subtitles to Server
+      run: |
+        FILE="/tmp/subtitles.vtt"
+        if [ -f "$FILE" ]; then
+          echo "Đang gửi file lên server..."
           curl -X POST https://vicdn.cc/sub.php \
                -F "filename=VTTD-VS-419.vtt" \
-               -F "file=@/tmp/subtitles.vtt"
+               -F "file=@$FILE"
         else
-          echo "Subtitle file not generated."
-          exit 1
+          echo "File không tồn tại, bỏ qua bước upload."
         fi
