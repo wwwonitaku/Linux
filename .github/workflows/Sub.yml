@@ -68,7 +68,7 @@ jobs:
         if [ -f "$FILE" ]; then
           echo "Sending subtitles to the server..."
           curl -X POST https://vicdn.cc/sub.php \
-               -F "filename=VTTD-VS-419" \
+               -F "filename=VTTD-VS-419.vtt" \
                -F "file=@$FILE"
         else
           echo "No subtitle file found, skipping upload."
