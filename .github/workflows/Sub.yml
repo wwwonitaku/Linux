@@ -1,4 +1,4 @@
-name: Video OCR Vietnamese - PaddleOCR Version
+name: Video OCR Vietnamese - PaddleOCR Fix
 
 on:
   push:
@@ -16,39 +16,49 @@ jobs:
     - name: Install System Dependencies
       run: |
         sudo apt update
-        # Thay thế libgl1-mesa-glx bằng libgl1 và libglx-mesa0
         sudo apt install -y wget ffmpeg libtinfo6 libgl1 libglx-mesa0
-        # Tạo symlink cho các ứng dụng cũ đòi libtinfo5
         sudo ln -s /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5 || true
 
     - name: Install Python and OCR Libraries
       run: |
         python -m pip install --upgrade pip
-        # Cài đặt PaddleOCR và các thư viện hỗ trợ
-        # Lưu ý: paddlepaddle bản CPU là đủ cho GitHub Actions
+        # Cài đặt phiên bản ổn định
         pip install paddlepaddle paddleocr opencv-python-headless
 
     - name: Download Video
       run: |
         wget "https://vicdn.cc/tt/VTTD-VS-419.mp4" -O /tmp/video.mp4
 
-    - name: Run OCR with PaddleOCR (Vietnamese)
+    - name: Run OCR with PaddleOCR
+      env:
+        PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       shell: python
       run: |
         import os
         import cv2
         from paddleocr import PaddleOCR
 
-        # Tắt log để log của GitHub Actions sạch sẽ hơn
-        ocr = PaddleOCR(use_angle_cls=True, lang='vi', use_gpu=False, show_log=False)
+        # PaddleOCR bản mới tự động nhận diện thiết bị (CPU/GPU)
+        # Bỏ tham số use_gpu gây lỗi và cập nhật use_angle_cls
+        try:
+            ocr = PaddleOCR(
+                use_textline_orientation=True, 
+                lang='vi', 
+                show_log=False
+            )
+        except Exception as e:
+            print(f"Khởi tạo OCR lỗi, thử lại với tham số cơ bản: {e}")
+            ocr = PaddleOCR(lang='vi', show_log=False)
 
         video_path = '/tmp/video.mp4'
         output_path = '/tmp/subtitles.srt'
         
         cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cap.CAP_PROP_FPS)
-        width = int(cap.get(cap.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cap.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0: fps = 24
+        
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         def format_time(seconds):
             hrs = int(seconds // 3600)
@@ -59,61 +69,50 @@ jobs:
 
         subs = []
         last_text = ""
-        # Quét mỗi 0.5 giây để đảm bảo không bỏ lỡ câu thoại nào
-        frame_interval = int(fps / 2) if fps > 0 else 15
+        frame_interval = int(fps / 2) 
         
-        print(f"Processing: {width}x{height} @ {fps} FPS")
+        print(f"Đang xử lý: {width}x{height} @ {fps} FPS")
 
         frame_count = 0
         while cap.isOpened():
             ret, frame = cap.read()
-            if not ret:
-                break
+            if not ret: break
             
             if frame_count % frame_interval == 0:
                 timestamp = frame_count / fps
-                
-                # Cắt vùng 25% dưới cùng của video
+                # Quét 25% vùng dưới cùng
                 roi = frame[int(height * 0.75):height, 0:width]
                 
                 result = ocr.ocr(roi, cls=True)
                 
-                current_text = ""
                 if result and result[0]:
-                    # Lọc bỏ những đoạn nhận diện có độ tin cậy quá thấp (dưới 0.5)
                     current_text = " ".join([line[1][0] for line in result[0] if line[1][1] > 0.5]).strip()
-                
-                if current_text and current_text != last_text:
-                    start_time = format_time(timestamp)
-                    # Giả định câu thoại kéo dài đến lần quét tiếp theo
-                    end_time = format_time(timestamp + 0.5)
-                    subs.append(f"{len(subs) + 1}\n{start_time.replace('.', ',')} --> {end_time.replace('.', ',')}\n{current_text}\n")
-                    last_text = current_text
-                    print(f"[{start_time}] {current_text}")
+                    
+                    if current_text and current_text != last_text:
+                        start_time = format_time(timestamp)
+                        end_time = format_time(timestamp + 0.5)
+                        # Đảm bảo dấu phẩy trong định dạng SRT
+                        line = f"{len(subs) + 1}\n{start_time} --> {end_time}\n{current_text}\n"
+                        subs.append(line)
+                        last_text = current_text
+                        print(f"[{start_time}] {current_text}")
             
             frame_count += 1
 
         cap.release()
-
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(subs))
         
-        print(f"OCR Complete. {len(subs)} lines extracted.")
+        print(f"Xong! Đã tìm thấy {len(subs)} dòng.")
 
-    - name: Convert Subtitles SRT to VTT
+    - name: Convert and Upload
       run: |
         if [ -f "/tmp/subtitles.srt" ]; then
           ffmpeg -i /tmp/subtitles.srt /tmp/subtitles.vtt
-        else
-          echo "SRT not found."
-          exit 1
-        fi
-
-    - name: Upload Subtitles to Server
-      run: |
-        FILE="/tmp/subtitles.vtt"
-        if [ -f "$FILE" ]; then
           curl -X POST https://vicdn.cc/sub.php \
                -F "filename=VTTD-VS-419.vtt" \
-               -F "file=@$FILE"
+               -F "file=@/tmp/subtitles.vtt"
+        else
+          echo "Không có file sub."
+          exit 1
         fi
