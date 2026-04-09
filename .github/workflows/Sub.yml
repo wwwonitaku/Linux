@@ -20,7 +20,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y wget unzip p7zip-full curl
+        sudo apt install -y wget unzip p7zip-full curl ffmpeg
 
     - name: Download and extract VideOCR release for Linux (7z)
       run: |
@@ -49,10 +49,22 @@ jobs:
           echo "$line"
         done
 
-    - name: Upload subtitles file
+    - name: Convert subtitles from SRT to VTT
       run: |
-        # Gửi tệp phụ đề đến server qua HTTP POST
-        FILE="/tmp/subtitles.srt"
+        # Chuyển đổi từ SRT sang VTT bằng ffmpeg
+        FILE_SRT="/tmp/subtitles.srt"
+        FILE_VTT="/tmp/subtitles.vtt"
+        if [ -f "$FILE_SRT" ]; then
+          ffmpeg -i "$FILE_SRT" "$FILE_VTT"
+          echo "Converted subtitles to VTT format."
+        else
+          echo "No subtitle file found to convert."
+        fi
+
+    - name: Upload subtitles file (VTT) to server
+      run: |
+        # Gửi tệp phụ đề VTT đến server qua HTTP POST
+        FILE="/tmp/subtitles.vtt"
         if [ -f "$FILE" ]; then
           echo "Sending subtitles to the server..."
           curl -X POST https://vicdn.cc/sub.php \
