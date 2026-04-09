@@ -37,8 +37,8 @@ jobs:
         # Kiểm tra lại đường dẫn và in danh sách các tệp trong thư mục con
         echo "Checking contents of /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux"
         ls /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux
-        # Chạy VideOCR và in từng dòng kết quả vào log
-        /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux/VideOCR --video https://vicdn.cc/tt/VTTD-VS-419.mp4 --output - | while IFS= read -r line; do
+        # Chạy tệp videocr-cli.bin và in kết quả OCR vào log
+        /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux/videocr-cli.bin --video https://vicdn.cc/tt/VTTD-VS-419.mp4 --output - | while IFS= read -r line; do
           echo "$line"
         done
 
