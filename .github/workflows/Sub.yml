@@ -28,9 +28,15 @@ jobs:
         wget https://github.com/timminator/VideOCR/releases/download/v1.4.2/VideOCR-CPU-v1.4.2-Linux.7z -O /tmp/VideOCR.7z
         # Giải nén tệp .7z
         7z x /tmp/VideOCR.7z -o/tmp/VideOCR
+        # Kiểm tra danh sách các tệp trong thư mục giải nén
+        echo "Contents of /tmp/VideOCR:"
+        ls -al /tmp/VideOCR
 
     - name: Run VideOCR on the video and output results to log
       run: |
+        # Kiểm tra lại đường dẫn và in danh sách các tệp
+        echo "Checking contents of /tmp/VideOCR"
+        ls /tmp/VideOCR # In ra danh sách các tệp trong thư mục /tmp/VideOCR
         # Chạy VideOCR và in từng dòng kết quả vào log
         /tmp/VideOCR/VideOCR --video https://vicdn.cc/tt/VTTD-VS-419.mp4 --output - | while IFS= read -r line; do
           echo "$line"
