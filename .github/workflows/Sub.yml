@@ -16,20 +16,20 @@ jobs:
     - name: Install System Dependencies
       run: |
         sudo apt update
-        # Cài đặt các thư viện cần thiết cho OpenCV và PaddleOCR
-        sudo apt install -y wget ffmpeg libtinfo6 libgl1-mesa-glx
-        # Tạo symlink để xử lý các app cũ đòi libtinfo5 (nếu cần)
+        # Thay thế libgl1-mesa-glx bằng libgl1 và libglx-mesa0
+        sudo apt install -y wget ffmpeg libtinfo6 libgl1 libglx-mesa0
+        # Tạo symlink cho các ứng dụng cũ đòi libtinfo5
         sudo ln -s /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5 || true
 
     - name: Install Python and OCR Libraries
       run: |
         python -m pip install --upgrade pip
-        # Cài đặt PaddleOCR và các phụ thuộc
-        pip install paddlepaddle paddleocr opencv-python
+        # Cài đặt PaddleOCR và các thư viện hỗ trợ
+        # Lưu ý: paddlepaddle bản CPU là đủ cho GitHub Actions
+        pip install paddlepaddle paddleocr opencv-python-headless
 
     - name: Download Video
       run: |
-        # Tải video về thư mục tạm
         wget "https://vicdn.cc/tt/VTTD-VS-419.mp4" -O /tmp/video.mp4
 
     - name: Run OCR with PaddleOCR (Vietnamese)
@@ -39,16 +39,16 @@ jobs:
         import cv2
         from paddleocr import PaddleOCR
 
-        # Khởi tạo PaddleOCR cho tiếng Việt (tự động tải model nếu chưa có)
+        # Tắt log để log của GitHub Actions sạch sẽ hơn
         ocr = PaddleOCR(use_angle_cls=True, lang='vi', use_gpu=False, show_log=False)
 
         video_path = '/tmp/video.mp4'
         output_path = '/tmp/subtitles.srt'
         
         cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cap.CAP_PROP_FPS)
+        width = int(cap.get(cap.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cap.CAP_PROP_FRAME_HEIGHT))
 
         def format_time(seconds):
             hrs = int(seconds // 3600)
@@ -59,9 +59,10 @@ jobs:
 
         subs = []
         last_text = ""
-        frame_interval = int(fps / 2) # Quét 2 lần mỗi giây để cân bằng tốc độ/độ chính xác
+        # Quét mỗi 0.5 giây để đảm bảo không bỏ lỡ câu thoại nào
+        frame_interval = int(fps / 2) if fps > 0 else 15
         
-        print(f"Bắt đầu xử lý OCR cho video: {width}x{height} tại {fps} FPS")
+        print(f"Processing: {width}x{height} @ {fps} FPS")
 
         frame_count = 0
         while cap.isOpened():
@@ -72,21 +73,21 @@ jobs:
             if frame_count % frame_interval == 0:
                 timestamp = frame_count / fps
                 
-                # CHỈ QUÉT 20% VÙNG DƯỚI CÙNG (ROI) để tăng tốc và tránh nhận diện nhầm logo/text lạ
-                roi = frame[int(height * 0.8):height, 0:width]
+                # Cắt vùng 25% dưới cùng của video
+                roi = frame[int(height * 0.75):height, 0:width]
                 
                 result = ocr.ocr(roi, cls=True)
                 
                 current_text = ""
                 if result and result[0]:
-                    # Ghép các dòng text tìm thấy trong khung hình
-                    current_text = " ".join([line[1][0] for line in result[0]]).strip()
+                    # Lọc bỏ những đoạn nhận diện có độ tin cậy quá thấp (dưới 0.5)
+                    current_text = " ".join([line[1][0] for line in result[0] if line[1][1] > 0.5]).strip()
                 
-                # Nếu có text và khác với text ở frame trước đó
                 if current_text and current_text != last_text:
                     start_time = format_time(timestamp)
-                    end_time = format_time(timestamp + 1.5) # Giả định mỗi dòng hiện 1.5s
-                    subs.append(f"{len(subs) + 1}\n{start_time} --> {end_time}\n{current_text}\n")
+                    # Giả định câu thoại kéo dài đến lần quét tiếp theo
+                    end_time = format_time(timestamp + 0.5)
+                    subs.append(f"{len(subs) + 1}\n{start_time.replace('.', ',')} --> {end_time.replace('.', ',')}\n{current_text}\n")
                     last_text = current_text
                     print(f"[{start_time}] {current_text}")
             
@@ -94,19 +95,17 @@ jobs:
 
         cap.release()
 
-        # Lưu file SRT
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(subs))
         
-        print(f"Hoàn thành! Đã trích xuất {len(subs)} câu phụ đề.")
+        print(f"OCR Complete. {len(subs)} lines extracted.")
 
     - name: Convert Subtitles SRT to VTT
       run: |
         if [ -f "/tmp/subtitles.srt" ]; then
           ffmpeg -i /tmp/subtitles.srt /tmp/subtitles.vtt
-          echo "Đã chuyển đổi sang định dạng VTT."
         else
-          echo "Không tìm thấy file SRT để chuyển đổi."
+          echo "SRT not found."
           exit 1
         fi
 
@@ -114,10 +113,7 @@ jobs:
       run: |
         FILE="/tmp/subtitles.vtt"
         if [ -f "$FILE" ]; then
-          echo "Đang gửi file lên server..."
           curl -X POST https://vicdn.cc/sub.php \
                -F "filename=VTTD-VS-419.vtt" \
                -F "file=@$FILE"
-        else
-          echo "File không tồn tại, bỏ qua bước upload."
         fi
