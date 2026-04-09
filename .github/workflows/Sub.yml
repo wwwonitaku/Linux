@@ -57,7 +57,7 @@ jobs:
           exit 1
         fi
 
-    # Để script gọn hơn, chúng ta tạo file python ngay trong workflow
+    # Để script gọn hơn, chúng ta tạo file python ngay trong workflow 
     - name: Create OCR Script
       run: |
         cat << 'EOF' > run_ocr.py
