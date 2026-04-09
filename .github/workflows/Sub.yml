@@ -38,13 +38,14 @@ jobs:
         wget https://vicdn.cc/tt/VTTD-VS-419.mp4 -O /tmp/video.mp4
         echo "Video downloaded to /tmp/video.mp4"
 
-    - name: Run VideOCR on the video and output results to log
+    - name: Run VideOCR on the video with Vietnamese language and output results to log
       run: |
         # Kiểm tra lại đường dẫn và in danh sách các tệp trong thư mục con
         echo "Checking contents of /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux"
         ls /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux
-        # Chạy tệp videocr-cli.bin và in kết quả OCR vào log
-        /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux/videocr-cli.bin --video_path /tmp/video.mp4 --output - | while IFS= read -r line; do
+        # Chạy tệp videocr-cli.bin với ngôn ngữ tiếng Việt và chỉ log kết quả từ "Starting PaddleOCR" trở đi
+        /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux/videocr-cli.bin --video_path /tmp/video.mp4 --lang vi --output - | \
+        awk '/Starting PaddleOCR/{f=1} f' | while IFS= read -r line; do
           echo "$line"
         done
 
