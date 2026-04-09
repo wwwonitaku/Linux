@@ -1,4 +1,4 @@
-name: Video OCR Vietnamese - PaddleOCR Final Stable
+name: Video OCR Vietnamese - Stable Version
 
 on:
   push:
@@ -22,16 +22,14 @@ jobs:
     - name: Install Python and OCR Libraries
       run: |
         python -m pip install --upgrade pip
-        # Cài đặt paddlepaddle (CPU) và paddleocr bản mới nhất
-        pip install paddlepaddle paddleocr opencv-python-headless
+        # Cài đặt Paddle bản 2.6.2 để tránh lỗi "Unimplemented" của bản 3.0
+        pip install paddlepaddle==2.6.2 paddleocr opencv-python-headless
 
     - name: Download Video
       run: |
         wget "https://vicdn.cc/tt/VTTD-VS-419.mp4" -O /tmp/video.mp4
 
     - name: Run OCR with PaddleOCR
-      env:
-        PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       shell: python
       run: |
         import os
@@ -39,15 +37,11 @@ jobs:
         import logging
         from paddleocr import PaddleOCR
 
-        # Vô hiệu hóa log để output sạch sẽ
+        # Tắt log để output sạch
         logging.getLogger("ppocr").setLevel(logging.ERROR)
 
-        # Khởi tạo tối giản nhất có thể
-        try:
-            ocr = PaddleOCR(lang='vi')
-        except Exception as e:
-            print(f"Khởi tạo lỗi: {e}")
-            exit(1)
+        # Khởi tạo bản ổn định
+        ocr = PaddleOCR(lang='vi', use_angle_cls=False, use_gpu=False, show_log=False)
 
         video_path = '/tmp/video.mp4'
         output_path = '/tmp/subtitles.srt'
@@ -68,9 +62,9 @@ jobs:
 
         subs = []
         last_text = ""
-        frame_interval = int(fps / 2) # Quét mỗi 0.5 giây
+        frame_interval = int(fps / 2) # Quét mỗi 0.5s
         
-        print(f"Bắt đầu xử lý: {width}x{height} @ {fps} FPS")
+        print(f"Processing: {width}x{height} @ {fps} FPS")
 
         frame_count = 0
         while cap.isOpened():
@@ -79,20 +73,13 @@ jobs:
             
             if frame_count % frame_interval == 0:
                 timestamp = frame_count / fps
-                # Lấy vùng 25% phía dưới video
+                # Lấy 25% vùng dưới cùng
                 roi = frame[int(height * 0.75):height, 0:width]
                 
-                # SỬ DỤNG .predict() thay cho .ocr() theo khuyến nghị của phiên bản mới
-                # Loại bỏ hoàn toàn tham số cls=False
-                try:
-                    result = ocr.predict(roi)
-                except Exception as e:
-                    # Fallback nếu predict có vấn đề trên một số môi trường đặc biệt
-                    result = ocr.ocr(roi)
+                # Bản 2.x dùng .ocr() rất ổn định
+                result = ocr.ocr(roi, cls=False)
                 
                 if result and result[0]:
-                    # Trích xuất text từ kết quả trả về
-                    # Cấu trúc kết quả thường là: [[ [box], (text, score) ], ...]
                     current_text = " ".join([line[1][0] for line in result[0] if line[1][1] > 0.5]).strip()
                     
                     if current_text and current_text != last_text:
@@ -109,7 +96,7 @@ jobs:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(subs))
         
-        print(f"Hoàn thành! Đã trích xuất {len(subs)} dòng.")
+        print(f"Xong! {len(subs)} câu.")
 
     - name: Convert and Upload
       run: |
@@ -119,6 +106,5 @@ jobs:
                -F "filename=VTTD-VS-419.vtt" \
                -F "file=@/tmp/subtitles.vtt"
         else
-          echo "SRT file not found."
           exit 1
         fi
