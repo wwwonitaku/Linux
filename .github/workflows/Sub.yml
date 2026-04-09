@@ -1,4 +1,4 @@
-name: Video OCR Vietnamese - PaddleOCR Final Fix
+name: Video OCR Vietnamese - PaddleOCR Final Stable
 
 on:
   push:
@@ -22,6 +22,7 @@ jobs:
     - name: Install Python and OCR Libraries
       run: |
         python -m pip install --upgrade pip
+        # Cài đặt paddlepaddle (CPU) và paddleocr bản mới nhất
         pip install paddlepaddle paddleocr opencv-python-headless
 
     - name: Download Video
@@ -35,18 +36,17 @@ jobs:
       run: |
         import os
         import cv2
-        from paddleocr import PaddleOCR
         import logging
+        from paddleocr import PaddleOCR
 
-        # Vô hiệu hóa log của PaddleOCR thông qua logging hệ thống
+        # Vô hiệu hóa log để output sạch sẽ
         logging.getLogger("ppocr").setLevel(logging.ERROR)
 
-        # KHỞI TẠO TỐI GIẢN: Chỉ để lại tham số 'lang'
-        # Các tham số gây lỗi như use_gpu, show_log, use_angle_cls đã bị loại bỏ hoàn toàn
+        # Khởi tạo tối giản nhất có thể
         try:
             ocr = PaddleOCR(lang='vi')
         except Exception as e:
-            print(f"Lỗi khởi tạo: {e}")
+            print(f"Khởi tạo lỗi: {e}")
             exit(1)
 
         video_path = '/tmp/video.mp4'
@@ -54,7 +54,7 @@ jobs:
         
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
-        if fps <= 0: fps = 24
+        if fps <= 0: fps = 25
         
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -68,8 +68,7 @@ jobs:
 
         subs = []
         last_text = ""
-        # Quét mỗi 0.5 giây
-        frame_interval = int(fps / 2) 
+        frame_interval = int(fps / 2) # Quét mỗi 0.5 giây
         
         print(f"Bắt đầu xử lý: {width}x{height} @ {fps} FPS")
 
@@ -80,21 +79,27 @@ jobs:
             
             if frame_count % frame_interval == 0:
                 timestamp = frame_count / fps
-                # Lấy 25% vùng dưới cùng của video
+                # Lấy vùng 25% phía dưới video
                 roi = frame[int(height * 0.75):height, 0:width]
                 
-                # Chạy nhận diện
-                result = ocr.ocr(roi, cls=False) # cls=False để tránh dùng angle classifier nếu không cần
+                # SỬ DỤNG .predict() thay cho .ocr() theo khuyến nghị của phiên bản mới
+                # Loại bỏ hoàn toàn tham số cls=False
+                try:
+                    result = ocr.predict(roi)
+                except Exception as e:
+                    # Fallback nếu predict có vấn đề trên một số môi trường đặc biệt
+                    result = ocr.ocr(roi)
                 
                 if result and result[0]:
+                    # Trích xuất text từ kết quả trả về
+                    # Cấu trúc kết quả thường là: [[ [box], (text, score) ], ...]
                     current_text = " ".join([line[1][0] for line in result[0] if line[1][1] > 0.5]).strip()
                     
                     if current_text and current_text != last_text:
                         start_time = format_time(timestamp)
                         end_time = format_time(timestamp + 0.5)
-                        # Định dạng chuẩn SRT với dấu phẩy
-                        line = f"{len(subs) + 1}\n{start_time.replace('.', ',')} --> {end_time.replace('.', ',')}\n{current_text}\n"
-                        subs.append(line)
+                        line_entry = f"{len(subs) + 1}\n{start_time.replace('.', ',')} --> {end_time.replace('.', ',')}\n{current_text}\n"
+                        subs.append(line_entry)
                         last_text = current_text
                         print(f"[{start_time}] {current_text}")
             
@@ -104,7 +109,7 @@ jobs:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(subs))
         
-        print(f"Xong! Trích xuất được {len(subs)} dòng.")
+        print(f"Hoàn thành! Đã trích xuất {len(subs)} dòng.")
 
     - name: Convert and Upload
       run: |
@@ -114,6 +119,6 @@ jobs:
                -F "filename=VTTD-VS-419.vtt" \
                -F "file=@/tmp/subtitles.vtt"
         else
-          echo "Không tìm thấy file sub."
+          echo "SRT file not found."
           exit 1
         fi
