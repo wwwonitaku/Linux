@@ -1,4 +1,4 @@
-name: Video OCR Vietnamese - Stable Version
+name: Video OCR Vietnamese - Stable Legacy
 
 on:
   push:
@@ -19,21 +19,19 @@ jobs:
         sudo apt install -y wget ffmpeg libtinfo6 libgl1 libglx-mesa0
         sudo ln -s /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5 || true
 
-    - name: Install Python and OCR Libraries
+    - name: Install Python and Stable OCR Libraries
       run: |
         python -m pip install --upgrade pip
-        # Cài đặt bản ổn định và opencv không GUI
-        pip install paddlepaddle==2.6.2 paddleocr opencv-python-headless
+        # Ép cài đặt các phiên bản cũ hơn nhưng cực kỳ ổn định cùng nhau
+        pip install paddlepaddle==2.6.2 paddleocr==2.7.3 opencv-python-headless
 
     - name: Download Video
       run: |
         wget "https://vicdn.cc/tt/VTTD-VS-419.mp4" -O /tmp/video.mp4
 
     - name: Run OCR with PaddleOCR
-      # Ép Paddle sử dụng CPU bằng biến môi trường thay vì tham số code
       env:
         FLAGS_selected_gpus: ""
-        PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       shell: python
       run: |
         import os
@@ -41,16 +39,15 @@ jobs:
         import logging
         from paddleocr import PaddleOCR
 
-        # Ép log im lặng
+        # Tắt toàn bộ log dư thừa
         logging.getLogger("ppocr").setLevel(logging.ERROR)
 
-        # KHỞI TẠO CỰC ĐOAN: Không thêm bất kỳ tham số nào ngoài lang
-        # Điều này giúp tránh lỗi "Unknown argument" trên mọi phiên bản
+        # Khởi tạo với các tham số an toàn nhất cho bản 2.7.3
         try:
+            ocr = PaddleOCR(lang='vi', use_angle_cls=False, use_gpu=False, show_log=False)
+        except:
+            # Nếu vẫn lỗi tham số, dùng khởi tạo rỗng
             ocr = PaddleOCR(lang='vi')
-        except Exception as e:
-            print(f"Lỗi khởi tạo: {e}")
-            exit(1)
 
         video_path = '/tmp/video.mp4'
         output_path = '/tmp/subtitles.srt'
@@ -71,9 +68,9 @@ jobs:
 
         subs = []
         last_text = ""
-        frame_interval = int(fps / 2) # Quét mỗi 0.5 giây
+        frame_interval = int(fps / 2) # Quét mỗi 0.5s
         
-        print(f"Đang xử lý: {width}x{height} @ {fps} FPS")
+        print(f"Bắt đầu OCR: {width}x{height} - {fps} FPS")
 
         frame_count = 0
         while cap.isOpened():
@@ -82,21 +79,23 @@ jobs:
             
             if frame_count % frame_interval == 0:
                 timestamp = frame_count / fps
-                # Cắt lấy vùng phụ đề (25% dưới cùng)
+                # Lấy 25% dưới màn hình
                 roi = frame[int(height * 0.75):height, 0:width]
                 
-                # Gọi hàm ocr với tham số tối giản
+                # Chạy OCR
                 result = ocr.ocr(roi, cls=False)
                 
                 if result and result[0]:
-                    current_text = " ".join([line[1][0] for line in result[0] if line[1][1] > 0.5]).strip()
+                    # Trích xuất văn bản và lọc độ tin cậy > 0.5
+                    texts = [line[1][0] for line in result[0] if line[1][1] > 0.5]
+                    current_text = " ".join(texts).strip()
                     
                     if current_text and current_text != last_text:
                         start_time = format_time(timestamp)
-                        end_time = format_time(timestamp + 0.5)
-                        # Định dạng SRT chuẩn
-                        line_entry = f"{len(subs) + 1}\n{start_time.replace('.', ',')} --> {end_time.replace('.', ',')}\n{current_text}\n"
-                        subs.append(line_entry)
+                        end_time = format_time(timestamp + 0.6) # Tăng nhẹ thời gian hiển thị
+                        
+                        entry = f"{len(subs) + 1}\n{start_time} --> {end_time}\n{current_text}\n"
+                        subs.append(entry)
                         last_text = current_text
                         print(f"[{start_time}] {current_text}")
             
@@ -106,7 +105,7 @@ jobs:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(subs))
         
-        print(f"Hoàn thành! Đã trích xuất {len(subs)} dòng.")
+        print(f"Xong! Đã lưu {len(subs)} dòng vào {output_path}")
 
     - name: Convert and Upload
       run: |
