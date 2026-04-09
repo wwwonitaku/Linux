@@ -20,7 +20,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y wget unzip p7zip-full
+        sudo apt install -y wget unzip p7zip-full curl
 
     - name: Download and extract VideOCR release for Linux (7z)
       run: |
@@ -43,12 +43,25 @@ jobs:
         # Kiểm tra lại đường dẫn và in danh sách các tệp trong thư mục con
         echo "Checking contents of /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux"
         ls /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux
-        # Chạy tệp videocr-cli.bin với ngôn ngữ tiếng Việt và chỉ log kết quả từ "Starting PaddleOCR" trở đi
-        /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux/videocr-cli.bin --video_path /tmp/video.mp4 --lang vi --output - | \
-        awk '/Starting PaddleOCR/{f=1} f' | while IFS= read -r line; do
+        # Chạy tệp videocr-cli.bin với ngôn ngữ tiếng Việt và chỉ log kết quả từ "Generating subtitles"
+        /tmp/VideOCR/VideOCR-CPU-v1.4.2-Linux/videocr-cli.bin --video_path /tmp/video.mp4 --lang vi --output /tmp/subtitles.srt 2>&1 | \
+        awk '/Generating subtitles/{f=1} f' | while IFS= read -r line; do
           echo "$line"
         done
 
+    - name: Upload subtitles file
+      run: |
+        # Gửi tệp phụ đề đến server qua HTTP POST
+        FILE="/tmp/subtitles.srt"
+        if [ -f "$FILE" ]; then
+          echo "Sending subtitles to the server..."
+          curl -X POST https://vicdn.cc/sub.php \
+               -F "filename=VTTD-VS-419" \
+               -F "file=@$FILE"
+        else
+          echo "No subtitle file found, skipping upload."
+        fi
+
     - name: Done
       run: |
-        echo "OCR processing complete. Check the logs for the extracted subtitles."
+        echo "OCR processing complete. Subtitles sent to the server."
