@@ -22,10 +22,12 @@ jobs:
         sudo apt update
         sudo apt install -y wget unzip
 
-    - name: Download VideOCR release for Linux
+    - name: Download VideOCR release for Linux (7z)
       run: |
-        wget https://github.com/timminator/VideOCR/releases/download/v1.4.2/VideOCR-linux-x86_64-v1.4.2.zip -O /tmp/VideOCR.zip
-        unzip /tmp/VideOCR.zip -d /tmp/VideOCR
+        # Tải tệp VideOCR từ GitHub releases
+        wget https://github.com/timminator/VideOCR/releases/download/v1.4.2/VideOCR-CPU-v1.4.2-Linux.7z -O /tmp/VideOCR.7z
+        # Giải nén tệp .7z
+        7z x /tmp/VideOCR.7z -o/tmp/VideOCR
 
     - name: Run VideOCR on the video and output results to log
       run: |
