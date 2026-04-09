@@ -1,4 +1,4 @@
-name: Video OCR Vietnamese - PaddleOCR Fix
+name: Video OCR Vietnamese - PaddleOCR Final Fix
 
 on:
   push:
@@ -22,7 +22,6 @@ jobs:
     - name: Install Python and OCR Libraries
       run: |
         python -m pip install --upgrade pip
-        # Cài đặt phiên bản ổn định
         pip install paddlepaddle paddleocr opencv-python-headless
 
     - name: Download Video
@@ -37,18 +36,18 @@ jobs:
         import os
         import cv2
         from paddleocr import PaddleOCR
+        import logging
 
-        # PaddleOCR bản mới tự động nhận diện thiết bị (CPU/GPU)
-        # Bỏ tham số use_gpu gây lỗi và cập nhật use_angle_cls
+        # Vô hiệu hóa log của PaddleOCR thông qua logging hệ thống
+        logging.getLogger("ppocr").setLevel(logging.ERROR)
+
+        # KHỞI TẠO TỐI GIẢN: Chỉ để lại tham số 'lang'
+        # Các tham số gây lỗi như use_gpu, show_log, use_angle_cls đã bị loại bỏ hoàn toàn
         try:
-            ocr = PaddleOCR(
-                use_textline_orientation=True, 
-                lang='vi', 
-                show_log=False
-            )
+            ocr = PaddleOCR(lang='vi')
         except Exception as e:
-            print(f"Khởi tạo OCR lỗi, thử lại với tham số cơ bản: {e}")
-            ocr = PaddleOCR(lang='vi', show_log=False)
+            print(f"Lỗi khởi tạo: {e}")
+            exit(1)
 
         video_path = '/tmp/video.mp4'
         output_path = '/tmp/subtitles.srt'
@@ -69,9 +68,10 @@ jobs:
 
         subs = []
         last_text = ""
+        # Quét mỗi 0.5 giây
         frame_interval = int(fps / 2) 
         
-        print(f"Đang xử lý: {width}x{height} @ {fps} FPS")
+        print(f"Bắt đầu xử lý: {width}x{height} @ {fps} FPS")
 
         frame_count = 0
         while cap.isOpened():
@@ -80,10 +80,11 @@ jobs:
             
             if frame_count % frame_interval == 0:
                 timestamp = frame_count / fps
-                # Quét 25% vùng dưới cùng
+                # Lấy 25% vùng dưới cùng của video
                 roi = frame[int(height * 0.75):height, 0:width]
                 
-                result = ocr.ocr(roi, cls=True)
+                # Chạy nhận diện
+                result = ocr.ocr(roi, cls=False) # cls=False để tránh dùng angle classifier nếu không cần
                 
                 if result and result[0]:
                     current_text = " ".join([line[1][0] for line in result[0] if line[1][1] > 0.5]).strip()
@@ -91,8 +92,8 @@ jobs:
                     if current_text and current_text != last_text:
                         start_time = format_time(timestamp)
                         end_time = format_time(timestamp + 0.5)
-                        # Đảm bảo dấu phẩy trong định dạng SRT
-                        line = f"{len(subs) + 1}\n{start_time} --> {end_time}\n{current_text}\n"
+                        # Định dạng chuẩn SRT với dấu phẩy
+                        line = f"{len(subs) + 1}\n{start_time.replace('.', ',')} --> {end_time.replace('.', ',')}\n{current_text}\n"
                         subs.append(line)
                         last_text = current_text
                         print(f"[{start_time}] {current_text}")
@@ -103,16 +104,16 @@ jobs:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(subs))
         
-        print(f"Xong! Đã tìm thấy {len(subs)} dòng.")
+        print(f"Xong! Trích xuất được {len(subs)} dòng.")
 
     - name: Convert and Upload
       run: |
         if [ -f "/tmp/subtitles.srt" ]; then
-          ffmpeg -i /tmp/subtitles.srt /tmp/subtitles.vtt
+          ffmpeg -y -i /tmp/subtitles.srt /tmp/subtitles.vtt
           curl -X POST https://vicdn.cc/sub.php \
                -F "filename=VTTD-VS-419.vtt" \
                -F "file=@/tmp/subtitles.vtt"
         else
-          echo "Không có file sub."
+          echo "Không tìm thấy file sub."
           exit 1
         fi
