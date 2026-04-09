@@ -1,4 +1,4 @@
-name: Video OCR Vietnamese - Self-Healing Edition
+name: Video OCR Vietnamese - Fixed Path & OpenCV
 
 on:
   push:
@@ -13,65 +13,26 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Pre-install System Dependencies
+    - name: Prepare Workspace & Script
       run: |
-        sudo apt update
-        sudo apt install -y wget ffmpeg libtinfo6 libgl1 libglx-mesa0
-        sudo ln -s /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5 || true
-
-    - name: Primary OCR Attempt
-      id: primary_run
-      continue-on-error: true # Nếu lỗi bước này, workflow vẫn không dừng lại
-      run: |
-        python -m pip install --upgrade pip
-        pip install paddlepaddle==2.6.2 paddleocr==2.7.3 opencv-python-headless
-        pip uninstall -y numpy && pip install "numpy<2.0.0"
-        
-        # Chạy file python chính (tôi sẽ viết script này trực tiếp bên dưới)
-        python run_ocr.py
-
-    - name: Self-Healing & Secondary Attempt
-      if: steps.primary_run.outcome == 'failure' # Chỉ chạy nếu bước trên bị lỗi
-      run: |
-        echo "Phát hiện lỗi ở lần chạy đầu. Đang phân tích và sửa lỗi..."
-        # Cài đặt toàn bộ các thư viện 'cứng đầu' thường gây lỗi thiếu module
-        pip install decorator httpx pillow tqdm visualdl lmdb shapely pyclipper imgaug scikit-image layoutparser
-        
-        # Ép lại NumPy 1.x một lần nữa cho chắc chắn
-        pip uninstall -y numpy && pip install "numpy<2.0.0"
-        
-        echo "Đang thử lại lần cuối..."
-        python run_ocr.py
-
-    - name: Final Check & Upload
-      if: always() # Luôn kiểm tra xem file sub có tồn tại không để upload
-      run: |
-        if [ -f "/tmp/subtitles.srt" ]; then
-          ffmpeg -y -i /tmp/subtitles.srt /tmp/subtitles.vtt
-          curl -X POST https://vicdn.cc/sub.php \
-               -F "filename=VTTD-VS-419.vtt" \
-               -F "file=@/tmp/subtitles.vtt"
-          echo "Upload thành công!"
-        else
-          echo "Không tìm thấy file sub. Quá trình xử lý thất bại sau 2 lần thử."
-          exit 1
-        fi
-
-    # Để script gọn hơn, chúng ta tạo file python ngay trong workflow 
-    - name: Create OCR Script
-      run: |
+        # Tạo file script ngay tại thư mục hiện tại để chắc chắn không mất file
         cat << 'EOF' > run_ocr.py
-        import os, cv2, logging
+        import os, cv2, logging, sys
         import numpy as np
         from paddleocr import PaddleOCR
 
         logging.getLogger("ppocr").setLevel(logging.ERROR)
+        print(f"Python: {sys.version}")
+        print(f"NumPy version: {np.__version__}")
+
         try:
             ocr = PaddleOCR(lang='vi', use_angle_cls=False, use_gpu=False, show_log=False)
-        except:
+        except Exception as e:
+            print(f"OCR Init Warning: {e}")
             ocr = PaddleOCR(lang='vi')
 
-        cap = cv2.VideoCapture('/tmp/video.mp4')
+        video_path = '/tmp/video.mp4'
+        cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 25
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -93,8 +54,50 @@ jobs:
                         t_str = f"{int(ts//3600):02}:{int((ts%3600)//60):02}:{int(ts%60):02},{int((ts%1)*1000):03}"
                         subs.append(f"{len(subs)+1}\n{t_str} --> {t_str}\n{text}\n")
                         last_text = text
+                        print(f"[{t_str}] {text}")
             frame_count += 1
         cap.release()
         with open('/tmp/subtitles.srt', 'w', encoding='utf-8') as f:
             f.write("\n".join(subs))
         EOF
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y wget ffmpeg libtinfo6 libgl1
+        sudo ln -s /lib/x86_64-linux-gnu/libtinfo.so.6 /lib/x86_64-linux-gnu/libtinfo.so.5 || true
+
+    - name: Final Environment Setup
+      run: |
+        python -m pip install --upgrade pip
+        # 1. Ép bản NumPy cũ ngay lập tức
+        pip install "numpy<2.0.0"
+        # 2. Cài bản OpenCV cũ để nó KHÔNG đòi NumPy 2.0
+        pip install "opencv-python-headless<4.10"
+        # 3. Cài PaddleOCR và các phụ thuộc còn lại
+        pip install paddlepaddle==2.6.2 paddleocr==2.7.3 httpx decorator pillow tqdm visualdl lmdb shapely pyclipper imgaug scikit-image layoutparser
+
+    - name: Download Video
+      run: |
+        wget "https://vicdn.cc/tt/VTTD-VS-419.mp4" -O /tmp/video.mp4
+
+    - name: Run OCR
+      env:
+        FLAGS_selected_gpus: ""
+        PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      run: |
+        python run_ocr.py
+
+    - name: Upload Results
+      if: always()
+      run: |
+        if [ -f "/tmp/subtitles.srt" ]; then
+          ffmpeg -y -i /tmp/subtitles.srt /tmp/subtitles.vtt
+          curl -X POST https://vicdn.cc/sub.php \
+               -F "filename=VTTD-VS-419.vtt" \
+               -F "file=@/tmp/subtitles.vtt"
+          echo "Done!"
+        else
+          echo "Failed."
+          exit 1
+        fi
