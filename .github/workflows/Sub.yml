@@ -79,7 +79,9 @@ jobs:
 
     - name: Download Video
       run: |
-        wget "https://vicdn.cc/tt/VTTD-VS-419.mp4" -O /tmp/video.mp4
+        ffmpeg -protocol_whitelist file,http,https,tcp,tls,crypto \
+               -i "https://vip.opstream90.com/20260512/31608_4f2bed48/3000k/hls/mixed.m3u8" \
+               -c copy -bsf:a aac_adtstoasc /tmp/video.mp4
 
     - name: Run OCR
       env:
